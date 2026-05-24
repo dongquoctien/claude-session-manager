@@ -134,7 +134,7 @@ Mục tiêu: chứng minh đọc dữ liệu + mở terminal hoạt động end-
 - [x] Thêm: inline SVG favicon (hết 404).
 - **Đã nghiệm thu:** 49/49 test pass (40 core + 9 agent). Verified trên browser thật — star/fav-filter/branch-filter/preview hoạt động; console sạch.
 
-### Phase 5 — Delete session (ĐỀ XUẤT, chưa làm)
+### Phase 5 — Delete session ✅ XONG
 > Mục tiêu: xoá / dọn conversation không còn cần, ngay trong tool.
 
 **Sự thật về dữ liệu (đã đo):** một session KHÔNG chỉ là 1 file.
@@ -151,13 +151,13 @@ Mục tiêu: chứng minh đọc dữ liệu + mở terminal hoạt động end-
 | Path traversal qua id | Chỉ chấp nhận id khớp regex UUID + phải tồn tại trong scan; resolve path rồi assert nằm trong projectsDir. |
 | Bề mặt agent rộng thêm | `POST /api/delete` cùng token/Host guard; chỉ nhận sessionId có trong scan (như `/api/open`). |
 
-**Việc cần làm:**
-- [ ] `core/trash.js`: `deleteSession(id)` → move `.jsonl` + sibling dir vào `.csm-trash/`. `restoreSession`, `emptyTrash(olderThanDays)`.
-- [ ] CLI: `csm rm <id>` (preview + `--yes`), `csm restore <id>`, `csm trash --empty`.
-- [ ] Agent: `POST /api/delete {id}` (move-to-trash), invalidate cache.
-- [ ] Web: nút thùng rác trên row (hover) → confirm dialog → toast “moved to trash · Undo”.
-- [ ] Tests: trash round-trip, sibling-dir handling, traversal guard.
-- **Mốc nghiệm thu:** xoá 1 session → biến mất khỏi list + file/dir vào `.csm-trash`; `restore` đưa lại đúng chỗ.
+**Việc đã làm:**
+- [x] `core/trash.js`: `deleteSession(session)` → move `.jsonl` + sibling dir vào `.csm-trash/<timestamp>-<uuid>/` (kèm `.csm-meta.json`). `restoreSession`, `listTrash`, `emptyTrash(olderThanDays)`. Move dùng rename, fallback copy+rm khi EXDEV (khác ổ đĩa).
+- [x] CLI: `csm rm <id>` (preview, cần `--yes` để xoá), `csm restore <id>` (match trên trash), `csm trash` (list) + `--empty [--days N]`.
+- [x] Agent: `POST /api/delete {id}` + `POST /api/restore {id}` — token/Host guard, chỉ nhận sessionId có trong scan, invalidate cache.
+- [x] Web: nút thùng rác trên row (hover) → confirm dialog → toast “Moved … to trash” + nút **Undo** (gọi restore).
+- [x] Tests: 8 core (round-trip, sibling-dir, traversal, overwrite-guard) + 3 agent (delete/restore round-trip, unknown-id 404, token-required).
+- **Đã nghiệm thu:** 61/61 test pass. Verified thật: CLI rm/restore round-trip cả sibling dir; Web delete→row biến mất→Undo→restore. KHÔNG đụng dữ liệu thật (test bằng throwaway session).
 
 ---
 

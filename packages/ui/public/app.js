@@ -36,6 +36,12 @@ const openSession = (id, { fork, skipPermissions }) =>
 const favoriteSession = (id) =>
   api('/api/favorite', { method: 'POST', body: JSON.stringify({ id }) });
 
+const deleteSessionReq = (id) =>
+  api('/api/delete', { method: 'POST', body: JSON.stringify({ id }) });
+
+const restoreSessionReq = (id) =>
+  api('/api/restore', { method: 'POST', body: JSON.stringify({ id }) });
+
 // --- state ----------------------------------------------------------------
 
 let allRows = []; // flat list of session objects in DOM order (for keyboard nav)
@@ -166,6 +172,17 @@ function render(sessions) {
       }
       row.appendChild(main);
 
+      // Trash button (hover) — moves the conversation to trash with Undo.
+      const del = el('button', 'row-del');
+      del.setAttribute('aria-label', 'Move to trash');
+      del.setAttribute('title', 'Move to trash');
+      del.appendChild(icon('trash'));
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        doDelete(s, row);
+      });
+      row.appendChild(del);
+
       const open = el('span', 'row-open');
       open.appendChild(el('span', null, 'Open'));
       open.appendChild(icon('play'));
@@ -185,13 +202,26 @@ function render(sessions) {
 // --- actions --------------------------------------------------------------
 
 let toastTimer;
-function toast(msg, kind = 'ok') {
+/**
+ * Show a toast. Optional action = { label, fn } renders a button (e.g. Undo)
+ * and keeps the toast up longer.
+ */
+function toast(msg, kind = 'ok', action = null) {
   clearTimeout(toastTimer);
-  $toast.textContent = msg;
+  $toast.replaceChildren();
+  $toast.appendChild(el('span', null, msg));
+  if (action) {
+    const btn = el('button', 'toast-action', action.label);
+    btn.addEventListener('click', () => {
+      $toast.className = 'toast';
+      action.fn();
+    });
+    $toast.appendChild(btn);
+  }
   $toast.className = `toast show ${kind}`;
   toastTimer = setTimeout(() => {
     $toast.className = 'toast';
-  }, 3500);
+  }, action ? 6000 : 3500);
 }
 
 async function doOpen(s) {
@@ -220,6 +250,30 @@ async function doFavorite(s, starEl) {
     if (activeFilter === 'fav' && !r.favorited) refresh();
   } catch (err) {
     toast(`Failed to update favorite: ${err.message}`, 'err');
+  }
+}
+
+async function doDelete(s, rowEl) {
+  if (!confirm(`Move this conversation to trash?\n\n${s.title}\n${s.cwd || s.projectLabel}\n\nYou can restore it afterwards.`)) {
+    return;
+  }
+  try {
+    await deleteSessionReq(s.id);
+    rowEl.remove(); // immediate visual feedback
+    toast(`Moved “${s.title}” to trash`, 'warn', {
+      label: 'Undo',
+      fn: async () => {
+        try {
+          await restoreSessionReq(s.id);
+          toast(`Restored “${s.title}”`, 'ok');
+          refresh();
+        } catch (err) {
+          toast(`Undo failed: ${err.message}`, 'err');
+        }
+      },
+    });
+  } catch (err) {
+    toast(`Failed to delete: ${err.message}`, 'err');
   }
 }
 

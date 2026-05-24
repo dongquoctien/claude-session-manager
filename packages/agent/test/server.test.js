@@ -149,3 +149,34 @@ test('start({port:0}) binds an OS-assigned port and reports it in the url', asyn
     info.server.close();
   }
 });
+
+test('delete then restore round-trips via the API', async () => {
+  // Create a throwaway conversation in the fake projects dir.
+  const id = 'dedede00-1111-2222-3333-444455556666';
+  writeConv('D--proj-del', id, [
+    { type: 'user', message: { content: 'to be deleted' }, cwd: os.tmpdir(), gitBranch: 'main' },
+    { type: 'ai-title', aiTitle: 'Delete me' },
+  ]);
+  const jsonl = path.join(fakeProjects, 'D--proj-del', `${id}.jsonl`);
+  assert.ok(fs.existsSync(jsonl));
+
+  const del = await req('/api/delete', { method: 'POST', token: TOKEN, body: JSON.stringify({ id }) });
+  assert.equal(del.status, 200);
+  assert.ok(!fs.existsSync(jsonl), 'file should be moved out on delete');
+
+  const res = await req('/api/restore', { method: 'POST', token: TOKEN, body: JSON.stringify({ id }) });
+  assert.equal(res.status, 200);
+  assert.ok(fs.existsSync(jsonl), 'file should be back after restore');
+});
+
+test('delete rejects an unknown id with 404', async () => {
+  const r = await req('/api/delete', {
+    method: 'POST', token: TOKEN, body: JSON.stringify({ id: 'nope-nope-nope-nope' }),
+  });
+  assert.equal(r.status, 404);
+});
+
+test('delete requires the token', async () => {
+  const r = await req('/api/delete', { method: 'POST', body: JSON.stringify({ id: 'x' }) });
+  assert.equal(r.status, 401);
+});

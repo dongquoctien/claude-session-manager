@@ -306,6 +306,26 @@ html, body {
 .row-open .icon { width: 13px; height: 13px; }
 .row:hover .row-open, .row.active .row-open { opacity: 1; }
 
+.row-del {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+.row-del .icon { width: 15px; height: 15px; }
+.row:hover .row-del, .row.active .row-del { opacity: 0.55; }
+.row-del:hover { background: var(--bg-elev); color: var(--err); opacity: 1; }
+
 .empty {
   text-align: center;
   color: var(--text-dim);
@@ -319,6 +339,9 @@ html, body {
   left: 50%;
   bottom: 24px;
   transform: translate(-50%, 20px);
+  display: flex;
+  align-items: center;
+  gap: 14px;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-left: 3px solid var(--ok);
@@ -331,7 +354,19 @@ html, body {
   transition: opacity 0.18s, transform 0.18s;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
 }
-.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
 .toast.ok { border-left-color: var(--ok); }
 .toast.warn { border-left-color: var(--warn); }
 .toast.err { border-left-color: var(--err); }
+.toast-action {
+  flex: none;
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 6px;
+  padding: 3px 12px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.toast-action:hover { background: var(--accent); color: #fff; }

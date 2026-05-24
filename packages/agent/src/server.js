@@ -11,6 +11,8 @@ import {
   launch,
   buildLaunch,
   toggleFavorite,
+  deleteSession,
+  restoreSession,
 } from '@csm/core';
 import { publicDir } from '@csm/ui/dir';
 
@@ -99,6 +101,29 @@ export function createServer(opts = {}) {
         const favorited = await toggleFavorite(body.id);
         cache = null; // favorites changed -> invalidate scan cache
         return send(res, 200, { id: body.id, favorited });
+      }
+
+      if (req.method === 'POST' && url.pathname === '/api/delete') {
+        const body = await readJson(req);
+        const id = body && typeof body.id === 'string' ? body.id : null;
+        if (!id) return send(res, 400, { error: 'missing id' });
+        // Only delete a session that exists in the current scan (never an
+        // arbitrary path); deleteSession also guards against traversal.
+        const sessions = await getSessions();
+        const { match } = findSession(sessions, id);
+        if (!match) return send(res, 404, { error: 'unknown id' });
+        const r = await deleteSession(match);
+        cache = null; // list changed
+        return send(res, 200, { ok: true, id: match.id, title: match.title, hadDir: r.hadDir });
+      }
+
+      if (req.method === 'POST' && url.pathname === '/api/restore') {
+        const body = await readJson(req);
+        const id = body && typeof body.id === 'string' ? body.id : null;
+        if (!id) return send(res, 400, { error: 'missing id' });
+        const r = await restoreSession(id);
+        cache = null;
+        return send(res, 200, { ok: true, id: r.id });
       }
 
       if (req.method === 'GET') {

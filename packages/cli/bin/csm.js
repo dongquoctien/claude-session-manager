@@ -7,6 +7,10 @@ import {
   buildLaunch,
   launch,
   toggleFavorite,
+  deleteSession,
+  restoreSession,
+  listTrash,
+  emptyTrash,
   projectsDir,
   projectsDirExists,
 } from '@csm/core';
@@ -19,6 +23,9 @@ Usage:
   csm search <query...>      Alias for list with a query
   csm open <id|prefix>       Open a terminal and resume that conversation
   csm fav <id|prefix>        Toggle favorite (pin) for a conversation
+  csm rm <id|prefix>         Move a conversation to trash (preview unless --yes)
+  csm restore <id|prefix>    Restore a conversation from trash
+  csm trash                  List trashed conversations (--empty [--days N])
   csm help                   Show this help
 
 Options:
@@ -41,6 +48,9 @@ Examples:
   csm list --recent 3        Touched in the last 3 days
   csm open 0ef59423          Resume by id prefix
   csm fav 0ef59423           Pin/unpin a conversation
+  csm rm 0ef59423            Preview what would be trashed
+  csm rm 0ef59423 --yes      Actually move it to trash
+  csm trash --empty --days 30  Purge trash older than 30 days
 `;
 
 /** Minimal flag parser. Returns { _, flags }. */
@@ -54,6 +64,9 @@ function parseArgs(argv) {
     else if (a === '--fork') flags.fork = true;
     else if (a === '--safe') flags.safe = true;
     else if (a === '--fav') flags.fav = true;
+    else if (a === '--yes' || a === '-y') flags.yes = true;
+    else if (a === '--empty') flags.empty = true;
+    else if (a === '--days') flags.days = Number(argv[++i]);
     else if (a === '--hide-missing') flags.hideMissing = true;
     else if (a === '--branch') flags.branch = argv[++i];
     else if (a === '--recent') {
@@ -165,20 +178,84 @@ async function cmdOpen(args, flags) {
   );
 }
 
-async function cmdFav(args) {
-  const idArg = args[0];
-  if (!idArg) die('Usage: csm fav <id|prefix>');
+/** Resolve a single session by id/prefix or exit with a helpful message. */
+async function resolveOne(idArg, verb) {
+  if (!idArg) die(`Usage: csm ${verb} <id|prefix>`);
   const sessions = await getSessions();
   const { match, ambiguous } = findSession(sessions, idArg);
   if (!match && ambiguous.length === 0) die(`No conversation found for "${idArg}".`);
   if (!match && ambiguous.length > 0) {
-    process.stderr.write(c.yellow(`"${idArg}" is ambiguous — ${ambiguous.length} matches.\n`));
+    process.stderr.write(c.yellow(`"${idArg}" is ambiguous — ${ambiguous.length} matches:\n`));
+    for (const s of ambiguous.slice(0, 10)) process.stderr.write(renderRow(s) + '\n');
     process.exit(2);
   }
+  return match;
+}
+
+async function cmdFav(args) {
+  const match = await resolveOne(args[0], 'fav');
   const favorited = await toggleFavorite(match.id);
   process.stdout.write(
     (favorited ? c.yellow('★ Pinned ') : c.dim('☆ Unpinned ')) + c.bold(match.title) + '\n',
   );
+}
+
+async function cmdRm(args, flags) {
+  const match = await resolveOne(args[0], 'rm');
+  if (!flags.yes) {
+    process.stdout.write(
+      c.yellow('Would move to trash:\n') +
+      renderRow(match) + '\n' +
+      c.dim(`  ${match.cwd || match.projectLabel}`) + '\n\n' +
+      c.dim('Re-run with ') + c.green('--yes') + c.dim(' to confirm. Restore later with ') +
+      c.green(`csm restore ${match.id.slice(0, 8)}`) + c.dim('.') + '\n',
+    );
+    return;
+  }
+  const r = await deleteSession(match);
+  process.stdout.write(
+    c.red('🗑 Moved to trash: ') + c.bold(match.title) + '\n' +
+    c.dim(`  ${r.hadDir ? '(with tool-results dir) ' : ''}restore: `) +
+    c.green(`csm restore ${match.id.slice(0, 8)}`) + '\n',
+  );
+}
+
+async function cmdRestore(args) {
+  const idArg = args[0];
+  if (!idArg) die('Usage: csm restore <id|prefix>');
+  // Match against trash, not the live scan.
+  const trash = await listTrash();
+  const exact = trash.find((t) => t.id === idArg);
+  const pref = trash.filter((t) => t.id.startsWith(idArg));
+  const entry = exact || (pref.length === 1 ? pref[0] : null);
+  if (!entry) {
+    if (pref.length > 1) die(`"${idArg}" is ambiguous in trash (${pref.length} matches).`, 2);
+    die(`Nothing in trash matches "${idArg}".`);
+  }
+  const r = await restoreSession(entry.id);
+  process.stdout.write(c.green('Restored ') + c.bold(entry.title || entry.id.slice(0, 8)) + c.dim(` → ${r.restoredTo}`) + '\n');
+}
+
+async function cmdTrash(flags) {
+  if (flags.empty) {
+    const days = Number.isFinite(flags.days) ? flags.days : 0;
+    const n = await emptyTrash(days);
+    process.stdout.write(c.dim(`Purged ${n} item(s)${days ? ` older than ${days} day(s)` : ''} from trash.\n`));
+    return;
+  }
+  const trash = await listTrash();
+  if (trash.length === 0) {
+    process.stdout.write('Trash is empty.\n');
+    return;
+  }
+  for (const t of trash) {
+    process.stdout.write(
+      `  ${c.dim(t.id.slice(0, 8))}  ${t.title || c.dim('(untitled)')}\n` +
+      `            ${c.dim(timeAgo(t.deletedAt) + ' · ' + t.projectSlug)}\n`,
+    );
+  }
+  process.stdout.write('\n' + c.dim(`${trash.length} in trash. Restore: `) + c.green('csm restore <id>') +
+    c.dim(' · purge: ') + c.green('csm trash --empty') + '\n');
 }
 
 async function main() {
@@ -197,6 +274,13 @@ async function main() {
     case 'fav':
     case 'favorite':
       return cmdFav(rest);
+    case 'rm':
+    case 'delete':
+      return cmdRm(rest, flags);
+    case 'restore':
+      return cmdRestore(rest);
+    case 'trash':
+      return cmdTrash(flags);
     case 'help':
     case '-h':
     case '--help':

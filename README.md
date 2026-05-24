@@ -9,9 +9,10 @@ there, and run `/resume`. With dozens of folders and hundreds of conversations
 that gets painful fast. `csm` lists them all in one place and reopens the one
 you pick in a new terminal, in the right directory, already resuming.
 
-> Status: **Phases 1–2 + 4** done — CLI, web UI, favorites, filters, preview,
-> cross-platform launching. Desktop (Electron) app is left open for later —
-> see [PLAN.md](./PLAN.md).
+> Status: **Phases 1–5** done — CLI, web UI, Electron desktop, favorites,
+> filters, preview, cross-platform launching, and delete-to-trash with restore.
+> See [PLAN.md](./PLAN.md). (Building the desktop `.exe` installer needs
+> Windows Developer Mode; the app itself runs via `npm run desktop`.)
 
 ## Requirements
 
@@ -91,8 +92,15 @@ csm list --branch main   # only on a given git branch
 csm search dashboard     # same as `list <query>`
 csm open <id|prefix>     # open a terminal and resume that conversation
 csm fav <id|prefix>      # pin / unpin a conversation
+csm rm <id|prefix>       # move to trash (preview; add --yes to confirm)
+csm restore <id|prefix>  # restore a trashed conversation
+csm trash                # list trash (--empty [--days N] to purge)
 csm help
 ```
+
+Deleting moves the conversation (its `.jsonl` **and** any `<uuid>/` tool-results
+directory) into `~/.claude/.csm-trash/` — nothing is `rm`'d, so you can always
+`csm restore` it (or Undo in the web UI). Purge with `csm trash --empty`.
 
 Useful flags:
 
@@ -108,6 +116,8 @@ Useful flags:
 | `--fork` | open | resume with `--fork-session` (new id, keeps history) |
 | `--safe` | open | keep permission prompts (skip is on by default) |
 | `--terminal <wt\|powershell>` | open | force a terminal (default: auto) |
+| `--yes` / `-y` | rm | actually move to trash (without it, just previews) |
+| `--empty` | trash | purge trash (`--days N` to only purge older than N days) |
 
 Favorites are stored in `~/.claude/csm-state.json` and shared between the CLI
 and the web UI.
