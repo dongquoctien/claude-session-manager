@@ -174,11 +174,18 @@ html, body {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0 2px 8px;
   position: sticky;
   top: 104px; /* below the sticky topbar (61) + filterbar (~43) */
+  z-index: 5; /* float above rows that scroll underneath */
+  /* Solid, opaque, full-width background so rows can't show through. Negative
+     side margins + matching padding bleed the bg to the list edges; a bottom
+     border separates the header from the first row cleanly. Margins on a
+     sticky element don't scroll with it (that was the bleak), so we use only
+     padding here. */
   background: var(--bg);
-  padding: 4px 0;
+  margin: 0 -18px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
 }
 .group-head .folder-icon { color: var(--accent); }
 .group-label {
@@ -205,6 +212,10 @@ html, body {
   padding: 1px 6px;
 }
 .badge.missing .icon { width: 12px; height: 12px; }
+
+/* Gap between a sticky header and its first row (the header no longer carries
+   a bottom margin so its background fully covers scrolling rows). */
+.group-head + .row { margin-top: 10px; }
 
 .row {
   display: flex;
