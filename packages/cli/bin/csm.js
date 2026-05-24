@@ -23,12 +23,15 @@ Options:
   --limit <n>                Limit number of rows (default: all)
   --dry-run                  (open) Print the command instead of running it
   --fork                     (open) Resume with --fork-session (new session id)
+  --safe                     (open) Do NOT pass --dangerously-skip-permissions
+                             (it is added by default for friction-free resume)
   --terminal <wt|powershell> (open) Force a terminal (default: auto)
 
 Examples:
   csm list                   Show everything, grouped by folder
   csm list news-tok          Filter to conversations matching "news-tok"
   csm open 0ef59423          Resume by id prefix
+  csm open 0ef59423 --safe   Resume but keep permission prompts
 `;
 
 /** Minimal flag parser. Returns { _, flags }. */
@@ -40,6 +43,7 @@ function parseArgs(argv) {
     if (a === '--json') flags.json = true;
     else if (a === '--dry-run') flags.dryRun = true;
     else if (a === '--fork') flags.fork = true;
+    else if (a === '--safe') flags.safe = true;
     else if (a === '--limit') flags.limit = Number(argv[++i]);
     else if (a === '--terminal') flags.terminal = argv[++i];
     else _.push(a);
@@ -118,6 +122,7 @@ async function cmdOpen(args, flags) {
     cwd: match.cwd,
     sessionId: match.id,
     fork: !!flags.fork,
+    skipPermissions: !flags.safe, // on by default; --safe opts out
     terminal: flags.terminal || 'auto',
   };
 

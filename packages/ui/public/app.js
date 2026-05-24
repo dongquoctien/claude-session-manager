@@ -19,8 +19,11 @@ async function api(path, options = {}) {
 const getSessions = (q) =>
   api(`/api/sessions${q ? `?q=${encodeURIComponent(q)}` : ''}`).then((d) => d.sessions);
 
-const openSession = (id, fork) =>
-  api('/api/open', { method: 'POST', body: JSON.stringify({ id, fork }) });
+const openSession = (id, { fork, skipPermissions }) =>
+  api('/api/open', {
+    method: 'POST',
+    body: JSON.stringify({ id, fork, skipPermissions }),
+  });
 
 // --- state ----------------------------------------------------------------
 
@@ -30,6 +33,7 @@ let activeIndex = -1;
 const $list = document.getElementById('list');
 const $search = document.getElementById('search');
 const $fork = document.getElementById('fork');
+const $skipperms = document.getElementById('skipperms');
 const $refresh = document.getElementById('refresh');
 const $toast = document.getElementById('toast');
 
@@ -159,7 +163,10 @@ async function doOpen(s) {
     toast(`Folder missing — Claude may fail to resume:\n${s.cwd}`, 'warn');
   }
   try {
-    const r = await openSession(s.id, $fork.checked);
+    const r = await openSession(s.id, {
+      fork: $fork.checked,
+      skipPermissions: $skipperms.checked,
+    });
     toast(`Opening “${r.title || s.title}” via ${r.terminal}`, 'ok');
   } catch (err) {
     toast(`Failed to open: ${err.message}`, 'err');

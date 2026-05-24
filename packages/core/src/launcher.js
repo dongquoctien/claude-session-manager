@@ -6,6 +6,7 @@ import os from 'node:os';
  * @property {string} cwd            working directory to open the terminal in
  * @property {string} sessionId      conversation to resume
  * @property {boolean} [fork]        use --fork-session (new id, keep history)
+ * @property {boolean} [skipPermissions] add --dangerously-skip-permissions
  * @property {'wt'|'powershell'|'auto'} [terminal='auto']
  * @property {string} [claudeBin='claude']
  */
@@ -57,23 +58,30 @@ export function buildLaunch(opts) {
     cwd,
     sessionId,
     fork = false,
+    skipPermissions = false,
     terminal = 'auto',
     claudeBin = 'claude',
   } = opts;
 
   const claudeArgs = ['--resume', sessionId];
   if (fork) claudeArgs.push('--fork-session');
+  if (skipPermissions) claudeArgs.push('--dangerously-skip-permissions');
 
   const kind = pickTerminal(terminal);
 
   if (kind === 'wt') {
-    // wt.exe -d "<cwd>" claude --resume <id>
-    // wt treats everything after the (last) profile/dir options as the command
-    // line to run; passing argv directly avoids manual quoting headaches.
+    // wt.exe -d "<cwd>" -- claude --resume <id>
+    //
+    // The `--` separator is essential: without it, wt parses claude's own
+    // flags (--resume, --fork-session, ...) as if they were wt options. wt
+    // doesn't know them, so it silently mangles the command line and claude
+    // ends up launched WITHOUT --resume — which is exactly why a session
+    // opened this way didn't match a real /resume. `--` tells wt "everything
+    // after here is the command to run, stop parsing my options".
     const wt = findWindowsTerminal() || 'wt.exe';
     return {
       cmd: wt,
-      args: ['-d', cwd, claudeBin, ...claudeArgs],
+      args: ['-d', cwd, '--', claudeBin, ...claudeArgs],
       terminal: 'wt',
     };
   }

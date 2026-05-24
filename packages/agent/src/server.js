@@ -132,6 +132,10 @@ async function handleOpen(res, body, getSessions) {
     cwd: match.cwd,
     sessionId: match.id,
     fork: !!(body && body.fork),
+    // Default ON (friction-free resume); the UI sends false to opt out.
+    skipPermissions: body && body.skipPermissions !== undefined
+      ? !!body.skipPermissions
+      : true,
     terminal: (body && body.terminal) || 'auto',
   };
 
