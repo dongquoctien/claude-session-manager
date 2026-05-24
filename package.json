@@ -8,13 +8,16 @@
     "packages/core",
     "packages/cli",
     "packages/ui",
-    "packages/agent"
+    "packages/agent",
+    "packages/desktop"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "csm": "node packages/cli/bin/csm.js",
-    "web": "node packages/agent/bin/csm-web.js"
+    "web": "node packages/agent/bin/csm-web.js",
+    "desktop": "npm start -w @csm/desktop",
+    "desktop:dist": "npm run dist -w @csm/desktop"
   },
   "engines": {
     "node": ">=18"

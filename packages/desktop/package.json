@@ -1,0 +1,41 @@
+{
+  "name": "@csm/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "csm desktop — Electron wrapper around the local agent + web UI.",
+  "author": "dongquoctien",
+  "type": "module",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --x64"
+  },
+  "dependencies": {
+    "@csm/agent": "0.1.0",
+    "@csm/core": "0.1.0",
+    "@csm/ui": "0.1.0"
+  },
+  "devDependencies": {
+    "electron": "^42.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.dongquoctien.csm",
+    "productName": "Claude Session Manager",
+    "electronVersion": "42.2.0",
+    "npmRebuild": false,
+    "directories": { "output": "release" },
+    "files": [
+      "src/**/*",
+      "!**/release/**"
+    ],
+    "extraResources": [],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

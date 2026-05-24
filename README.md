@@ -61,6 +61,25 @@ new terminal. Tick **fork** to resume as a new forked session.
 (anti DNS-rebind), and `POST /api/open` only accepts a sessionId already
 present in the scan — it never takes an arbitrary path or command.
 
+## Desktop app (Electron)
+
+The same UI, in its own window — no browser or terminal needed:
+
+```sh
+npm run desktop             # launch the Electron app
+npm run desktop:dist        # build a Windows installer (.exe) into
+                            # packages/desktop/release/
+```
+
+The desktop app just hosts the local agent on a random free port and loads
+its token URL in a window — same code, same security model as the web UI.
+
+> Note: in a clean monorepo install, the `app-builder-bin` / `electron`
+> binaries occasionally fail to unpack on first `npm install` (network).
+> If `desktop:dist` reports a missing `app-builder.exe`, run
+> `npm install app-builder-bin --no-save --force` once and rebuild. The
+> Electron binary can be fetched via `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`.
+
 ## Usage (CLI)
 
 ```sh

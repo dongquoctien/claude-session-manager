@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import http from 'node:http';
-import { createServer } from '../src/server.js';
+import { createServer, start } from '../src/server.js';
 
 // Build a tiny fake ~/.claude/projects so the scan returns deterministic data.
 const TOKEN = 'test-token-123';
@@ -134,5 +134,18 @@ test('blocks path traversal on static', async () => {
   if (r.status === 200) {
     const txt = await r.text();
     assert.ok(!txt.includes('"workspaces"'), 'must not serve repo package.json');
+  }
+});
+
+test('start({port:0}) binds an OS-assigned port and reports it in the url', async () => {
+  // Regression: `opts.port || DEFAULT` treated 0 as falsy. The desktop app
+  // relies on port 0 -> free port. Verify the returned url uses the real port.
+  const info = await start({ port: 0 });
+  try {
+    assert.ok(info.port > 0, 'should bind a real port');
+    assert.notEqual(info.port, 4777, 'should not fall back to the default');
+    assert.ok(info.url.includes(`:${info.port}/`), 'url must contain the bound port');
+  } finally {
+    info.server.close();
   }
 });

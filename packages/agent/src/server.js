@@ -122,10 +122,14 @@ export function createServer(opts = {}) {
  */
 export function start(opts = {}) {
   const { server, token } = createServer(opts);
-  const port = opts.port || DEFAULT_PORT;
+  // Use ?? not || so port 0 (OS-assigned free port, used by the desktop app)
+  // is honored instead of falling through to the default.
+  const requested = opts.port ?? DEFAULT_PORT;
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, HOST, () => {
+    server.listen(requested, HOST, () => {
+      // Read the actual bound port (matters when requested was 0).
+      const port = server.address().port;
       const url = `http://${HOST}:${port}/?token=${token}`;
       resolve({ server, token, port, url });
     });
