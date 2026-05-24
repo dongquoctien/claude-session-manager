@@ -108,6 +108,24 @@ function psSingleQuote(s) {
 }
 
 /**
+ * Environment for the spawned terminal. The launched claude inherits whatever
+ * env csm/agent run under; if that includes NO_COLOR (or the agent was started
+ * with NO_COLOR=1), claude renders WITHOUT colors — flat/wrong vs a normal
+ * launch (logo grey instead of orange, no status colors). We strip the
+ * color-suppressing vars so claude does its own normal TTY color detection
+ * inside Windows Terminal — exactly as if you ran it directly. We deliberately
+ * do NOT force color on, to avoid emitting ANSI in a terminal that can't show
+ * it; wt is a real TTY, so detection works.
+ * @returns {NodeJS.ProcessEnv}
+ */
+function colorEnv() {
+  const env = { ...process.env };
+  delete env.NO_COLOR;
+  delete env.CLICOLOR; // some tools treat CLICOLOR=0 as "no color"
+  return env;
+}
+
+/**
  * Launch a terminal that resumes the given conversation. The new terminal is
  * fully detached so it keeps running after csm exits.
  *
@@ -129,6 +147,7 @@ export function launch(opts) {
     detached: true,
     stdio: 'ignore',
     windowsHide: false,
+    env: colorEnv(),
   });
   child.unref();
   return { terminal, cmd, args };
