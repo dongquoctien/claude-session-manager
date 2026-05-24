@@ -174,11 +174,17 @@ html, body {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0 2px 8px;
-  padding: 2px 0;
-  /* Static (not sticky): with many folder groups, a sticky header overlapped
-     the last row of its group and looked detached during the hand-off to the
-     next header. A plain header that scrolls with its content is cleaner. */
+  /* Sticky just below the topbar (61) + filterbar (~43) so you always see
+     which folder you're in. Opaque full-bleed background (margin -18 + matching
+     padding) so rows scrolling underneath can't show through. Each group is its
+     own scope: when a group scrolls past, the next header simply takes over —
+     it does not overlap rows of OTHER groups. z-index keeps it above rows. */
+  position: sticky;
+  top: 104px;
+  z-index: 5;
+  background: var(--bg);
+  margin: 0 -18px 8px;
+  padding: 6px 20px;
 }
 .group-head .folder-icon { color: var(--accent); }
 .group-label {
