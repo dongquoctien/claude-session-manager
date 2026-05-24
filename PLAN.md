@@ -134,6 +134,31 @@ Mục tiêu: chứng minh đọc dữ liệu + mở terminal hoạt động end-
 - [x] Thêm: inline SVG favicon (hết 404).
 - **Đã nghiệm thu:** 49/49 test pass (40 core + 9 agent). Verified trên browser thật — star/fav-filter/branch-filter/preview hoạt động; console sạch.
 
+### Phase 5 — Delete session (ĐỀ XUẤT, chưa làm)
+> Mục tiêu: xoá / dọn conversation không còn cần, ngay trong tool.
+
+**Sự thật về dữ liệu (đã đo):** một session KHÔNG chỉ là 1 file.
+- `~/.claude/projects/<slug>/<uuid>.jsonl` — nội dung hội thoại.
+- `~/.claude/projects/<slug>/<uuid>/` — thư mục con (49/264 session có), chứa `tool-results/*` (output tool calls, file tới ~75KB). **Phải xoá cả hai.**
+
+**Rủi ro:**
+| Rủi ro | Xử lý đề xuất |
+|--------|---------------|
+| Không hoàn tác được (mất history vĩnh viễn) | KHÔNG `rm` thẳng. Move vào thùng rác: `<configDir>/.csm-trash/<timestamp>-<uuid>/` (giữ cả .jsonl + sibling dir). Có lệnh `csm restore` / dọn trash sau N ngày. |
+| Sót sibling dir `<uuid>/` | `deleteSession` xoá CẢ file `.jsonl` LẪN folder cùng tên (atomic-ish: move cả hai). |
+| Xoá nhầm | Web: confirm dialog 2 bước (hiện title + folder). CLI: `csm rm <id>` in cái sắp xoá rồi hỏi `--yes`, không có `--yes` thì chỉ preview. |
+| Session đang resume ở cửa sổ khác | Cảnh báo nếu file mtime < 60s (vừa ghi). Không khoá được hẳn nhưng cảnh báo. |
+| Path traversal qua id | Chỉ chấp nhận id khớp regex UUID + phải tồn tại trong scan; resolve path rồi assert nằm trong projectsDir. |
+| Bề mặt agent rộng thêm | `POST /api/delete` cùng token/Host guard; chỉ nhận sessionId có trong scan (như `/api/open`). |
+
+**Việc cần làm:**
+- [ ] `core/trash.js`: `deleteSession(id)` → move `.jsonl` + sibling dir vào `.csm-trash/`. `restoreSession`, `emptyTrash(olderThanDays)`.
+- [ ] CLI: `csm rm <id>` (preview + `--yes`), `csm restore <id>`, `csm trash --empty`.
+- [ ] Agent: `POST /api/delete {id}` (move-to-trash), invalidate cache.
+- [ ] Web: nút thùng rác trên row (hover) → confirm dialog → toast “moved to trash · Undo”.
+- [ ] Tests: trash round-trip, sibling-dir handling, traversal guard.
+- **Mốc nghiệm thu:** xoá 1 session → biến mất khỏi list + file/dir vào `.csm-trash`; `restore` đưa lại đúng chỗ.
+
 ---
 
 ## 5. Rủi ro & cách xử lý
