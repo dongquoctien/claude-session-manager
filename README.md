@@ -9,10 +9,19 @@ there, and run `/resume`. With dozens of folders and hundreds of conversations
 that gets painful fast. `csm` lists them all in one place and reopens the one
 you pick in a new terminal, in the right directory, already resuming.
 
-> Status: **Phases 1–5** done — CLI, web UI, Electron desktop, favorites,
-> filters, preview, cross-platform launching, and delete-to-trash with restore.
-> See [PLAN.md](./PLAN.md). (Building the desktop `.exe` installer needs
-> Windows Developer Mode; the app itself runs via `npm run desktop`.)
+![status](https://img.shields.io/badge/status-v0.1.0-d97757) ![license](https://img.shields.io/badge/license-MIT-blue)
+
+CLI, web UI, and a desktop app — favorites, filters, last-prompt preview,
+cross-platform launching, and delete-to-trash with restore. See [PLAN.md](./PLAN.md).
+
+## Download
+
+**Windows:** grab the installer from the
+[latest release](https://github.com/dongquoctien/claude-session-manager/releases/latest)
+(`Claude Session Manager Setup *.exe`) and double-click — no Node or terminal
+needed.
+
+For the CLI / web UI / other platforms, run from source (below).
 
 ## Requirements
 
