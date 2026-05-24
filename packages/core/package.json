@@ -1,0 +1,14 @@
+{
+  "name": "@csm/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Core: scan, parse and launch Claude Code conversations.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

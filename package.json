@@ -1,0 +1,19 @@
+{
+  "name": "claude-session-manager",
+  "version": "0.1.0",
+  "private": true,
+  "description": "List and instantly reopen any Claude Code conversation across all your folders.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/core",
+    "packages/cli"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "csm": "node packages/cli/bin/csm.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

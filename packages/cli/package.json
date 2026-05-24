@@ -1,0 +1,13 @@
+{
+  "name": "@csm/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "csm — list and reopen Claude Code conversations from the terminal.",
+  "type": "module",
+  "bin": {
+    "csm": "bin/csm.js"
+  },
+  "dependencies": {
+    "@csm/core": "0.1.0"
+  }
+}
