@@ -68,6 +68,22 @@ function el(tag, cls, text) {
   return n;
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const XLINK_NS = 'http://www.w3.org/1999/xlink';
+
+/** Build an <svg><use href="#i-name"/></svg> referencing the inline sprite. */
+function icon(name, cls) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', cls ? `icon ${cls}` : 'icon');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  const use = document.createElementNS(SVG_NS, 'use');
+  use.setAttribute('href', `#i-${name}`);
+  use.setAttributeNS(XLINK_NS, 'xlink:href', `#i-${name}`); // older WebKit
+  svg.appendChild(use);
+  return svg;
+}
+
 function render(sessions) {
   $list.innerHTML = '';
   allRows = [];
@@ -81,9 +97,13 @@ function render(sessions) {
   for (const [label, items] of groupByProject(sessions)) {
     const group = el('section', 'group');
     const head = el('div', 'group-head');
+    head.appendChild(icon('folder', 'folder-icon'));
     head.appendChild(el('span', 'group-label', label));
     if (items[0] && !items[0].cwdExists) {
-      head.appendChild(el('span', 'badge missing', 'missing'));
+      const badge = el('span', 'badge missing');
+      badge.appendChild(icon('alert'));
+      badge.appendChild(el('span', null, 'missing'));
+      head.appendChild(badge);
     }
     head.appendChild(el('span', 'group-count', String(items.length)));
     group.appendChild(head);
@@ -95,7 +115,12 @@ function render(sessions) {
       const main = el('div', 'row-main');
       main.appendChild(el('div', 'row-title', s.title));
       const meta = el('div', 'row-meta');
-      if (s.branch) meta.appendChild(el('span', 'branch', s.branch));
+      if (s.branch) {
+        const branch = el('span', 'branch');
+        branch.appendChild(icon('git-branch'));
+        branch.appendChild(el('span', null, s.branch));
+        meta.appendChild(branch);
+      }
       meta.appendChild(el('span', 'when', timeAgo(s.mtime)));
       meta.appendChild(el('span', 'id', s.id.slice(0, 8)));
       if (s.titleSource !== 'aiTitle') {
@@ -104,7 +129,9 @@ function render(sessions) {
       main.appendChild(meta);
       row.appendChild(main);
 
-      const open = el('span', 'row-open', 'Open ▶');
+      const open = el('span', 'row-open');
+      open.appendChild(el('span', null, 'Open'));
+      open.appendChild(icon('play'));
       row.appendChild(open);
 
       row.addEventListener('click', () => doOpen(s));

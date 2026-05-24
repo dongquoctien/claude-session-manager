@@ -9,12 +9,54 @@
   <script>window.CSM_TOKEN = "%%CSM_TOKEN%%";</script>
 </head>
 <body>
+  <!--
+    Inline icon sprite (Lucide, ISC license). Inlined rather than loaded from a
+    CDN so icons render instantly, offline, with no emoji/font dependency.
+    Reuse anywhere via <svg class="icon"><use href="#icon-name"/></svg>.
+  -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <g id="i-logo" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/>
+        <path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/>
+      </g>
+      <g id="i-search" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/>
+        <path d="m21 21-4.3-4.3"/>
+      </g>
+      <g id="i-refresh" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+        <path d="M21 3v5h-5"/>
+        <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+        <path d="M8 16H3v5"/>
+      </g>
+      <g id="i-folder" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
+      </g>
+      <g id="i-git-branch" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="6" x2="6" y1="3" y2="15"/>
+        <circle cx="18" cy="6" r="3"/>
+        <circle cx="6" cy="18" r="3"/>
+        <path d="M18 9a9 9 0 0 1-9 9"/>
+      </g>
+      <g id="i-play" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="6 3 20 12 6 21 6 3"/>
+      </g>
+      <g id="i-alert" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+        <path d="M12 9v4"/>
+        <path d="M12 17h.01"/>
+      </g>
+    </defs>
+  </svg>
+
   <header class="topbar">
     <div class="brand">
-      <span class="logo">◑</span>
+      <svg class="icon logo" viewBox="0 0 24 24"><use href="#i-logo"/></svg>
       <span>Claude Session Manager</span>
     </div>
     <div class="search-wrap">
+      <svg class="icon search-icon" viewBox="0 0 24 24"><use href="#i-search"/></svg>
       <input id="search" type="search" placeholder="Search title, folder, branch…" autocomplete="off" autofocus />
       <kbd>/</kbd>
     </div>
@@ -22,7 +64,9 @@
       <label class="toggle" title="Resume as a new forked session (keeps original intact)">
         <input id="fork" type="checkbox" /> fork
       </label>
-      <button id="refresh" title="Rescan">↻</button>
+      <button id="refresh" title="Rescan" aria-label="Rescan">
+        <svg class="icon" viewBox="0 0 24 24"><use href="#i-refresh"/></svg>
+      </button>
     </div>
   </header>
 
