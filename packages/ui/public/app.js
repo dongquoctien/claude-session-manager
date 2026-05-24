@@ -59,6 +59,49 @@ const $branchFilter = document.getElementById('branch-filter');
 const $hideOrphans = document.getElementById('hide-orphans');
 const $chips = [...document.querySelectorAll('.chip[data-filter]')];
 
+// --- confirm modal (replaces window.confirm) ------------------------------
+
+const $modalOverlay = document.getElementById('modal-overlay');
+const $modalTitle = document.getElementById('modal-conv-title');
+const $modalPath = document.getElementById('modal-conv-path');
+const $modalConfirm = document.getElementById('modal-confirm');
+const $modalCancel = document.getElementById('modal-cancel');
+
+/**
+ * Show the themed confirm dialog. Resolves true if confirmed, false otherwise.
+ * @param {{ title: string, path: string }} info
+ * @returns {Promise<boolean>}
+ */
+function confirmModal({ title, path }) {
+  return new Promise((resolve) => {
+    $modalTitle.textContent = title;
+    $modalPath.textContent = path;
+    $modalOverlay.hidden = false;
+    $modalConfirm.focus();
+
+    const cleanup = () => {
+      $modalOverlay.hidden = true;
+      $modalConfirm.removeEventListener('click', onConfirm);
+      $modalCancel.removeEventListener('click', onCancel);
+      $modalOverlay.removeEventListener('click', onBackdrop);
+      document.removeEventListener('keydown', onKey);
+    };
+    const done = (val) => { cleanup(); resolve(val); };
+    const onConfirm = () => done(true);
+    const onCancel = () => done(false);
+    const onBackdrop = (e) => { if (e.target === $modalOverlay) done(false); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') done(false);
+      else if (e.key === 'Enter') done(true);
+    };
+
+    $modalConfirm.addEventListener('click', onConfirm);
+    $modalCancel.addEventListener('click', onCancel);
+    $modalOverlay.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey);
+  });
+}
+
 // --- rendering ------------------------------------------------------------
 
 function timeAgo(ms) {
@@ -172,7 +215,13 @@ function render(sessions) {
       }
       row.appendChild(main);
 
-      // Trash button (hover) — moves the conversation to trash with Undo.
+      const open = el('span', 'row-open');
+      open.appendChild(el('span', null, 'Open'));
+      open.appendChild(icon('play'));
+      row.appendChild(open);
+
+      // Trash button — last, separated from Open by a divider so it's not
+      // mistaken for the primary action.
       const del = el('button', 'row-del');
       del.setAttribute('aria-label', 'Move to trash');
       del.setAttribute('title', 'Move to trash');
@@ -182,11 +231,6 @@ function render(sessions) {
         doDelete(s, row);
       });
       row.appendChild(del);
-
-      const open = el('span', 'row-open');
-      open.appendChild(el('span', null, 'Open'));
-      open.appendChild(icon('play'));
-      row.appendChild(open);
 
       row.addEventListener('click', () => doOpen(s));
       row.addEventListener('keydown', (e) => {
@@ -254,9 +298,8 @@ async function doFavorite(s, starEl) {
 }
 
 async function doDelete(s, rowEl) {
-  if (!confirm(`Move this conversation to trash?\n\n${s.title}\n${s.cwd || s.projectLabel}\n\nYou can restore it afterwards.`)) {
-    return;
-  }
+  const ok = await confirmModal({ title: s.title, path: s.cwd || s.projectLabel });
+  if (!ok) return;
   try {
     await deleteSessionReq(s.id);
     rowEl.remove(); // immediate visual feedback

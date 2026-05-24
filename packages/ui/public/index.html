@@ -106,6 +106,28 @@
 
   <div id="toast" class="toast" role="status"></div>
 
+  <!-- Confirm dialog (replaces the browser's default confirm). Hidden until shown. -->
+  <div id="modal-overlay" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-head">
+        <svg class="icon modal-icon" viewBox="0 0 24 24"><use href="#i-trash"/></svg>
+        <h2 id="modal-title">Move to trash?</h2>
+      </div>
+      <div class="modal-body">
+        <div id="modal-conv-title" class="modal-conv-title"></div>
+        <div id="modal-conv-path" class="modal-conv-path"></div>
+        <p class="modal-note">You can restore it afterwards (Undo, or from trash).</p>
+      </div>
+      <div class="modal-actions">
+        <button id="modal-cancel" class="btn btn-ghost">Cancel</button>
+        <button id="modal-confirm" class="btn btn-danger">
+          <svg class="icon" viewBox="0 0 24 24"><use href="#i-trash"/></svg>
+          Move to trash
+        </button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="/app.js"></script>
 </body>
 </html>
