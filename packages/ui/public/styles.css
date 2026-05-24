@@ -1,0 +1,213 @@
+:root {
+  --bg: #1a1815;
+  --bg-elev: #242019;
+  --bg-row: #2b2620;
+  --bg-row-hover: #342e26;
+  --border: #3a342b;
+  --text: #ece6db;
+  --text-dim: #9a9286;
+  --accent: #d97757;
+  --accent-dim: #b85f43;
+  --magenta: #c08adb;
+  --warn: #e0a458;
+  --err: #e06a5a;
+  --ok: #7fc8a0;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* --- top bar --- */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 18px;
+  background: rgba(26, 24, 21, 0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.brand .logo { color: var(--accent); font-size: 18px; }
+
+.search-wrap {
+  position: relative;
+  flex: 1;
+  max-width: 640px;
+}
+.search-wrap input {
+  width: 100%;
+  padding: 9px 36px 9px 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+.search-wrap input:focus { border-color: var(--accent); }
+.search-wrap kbd {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+
+.actions { display: flex; align-items: center; gap: 12px; }
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+#refresh {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  color: var(--text);
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+}
+#refresh:hover { background: var(--bg-row-hover); }
+
+/* --- list --- */
+.list { padding: 14px 18px 80px; max-width: 980px; margin: 0 auto; }
+
+.group { margin-bottom: 22px; }
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 2px 8px;
+  position: sticky;
+  top: 61px;
+  background: var(--bg);
+  padding: 4px 0;
+}
+.group-label {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 13px;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+.group-count {
+  color: var(--text-dim);
+  font-size: 12px;
+  background: var(--bg-elev);
+  border-radius: 10px;
+  padding: 0 8px;
+}
+.badge.missing {
+  color: var(--err);
+  border: 1px solid var(--err);
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 0 6px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  background: var(--bg-row);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 6px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+.row:hover, .row.active {
+  background: var(--bg-row-hover);
+  border-color: var(--accent-dim);
+}
+.row-main { flex: 1; min-width: 0; }
+.row-title {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.row-meta {
+  display: flex;
+  gap: 12px;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.row-meta .branch { color: var(--magenta); }
+.row-meta .id { font-family: ui-monospace, Consolas, monospace; }
+.row-meta .src {
+  color: var(--text-dim);
+  font-style: italic;
+  opacity: 0.7;
+}
+.row-open {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0;
+  white-space: nowrap;
+  transition: opacity 0.12s;
+}
+.row:hover .row-open, .row.active .row-open { opacity: 1; }
+
+.empty {
+  text-align: center;
+  color: var(--text-dim);
+  padding: 60px 0;
+}
+.empty.err { color: var(--err); }
+
+/* --- toast --- */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translate(-50%, 20px);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--ok);
+  border-radius: 8px;
+  padding: 11px 16px;
+  max-width: 540px;
+  white-space: pre-line;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s, transform 0.18s;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast.ok { border-left-color: var(--ok); }
+.toast.warn { border-left-color: var(--warn); }
+.toast.err { border-left-color: var(--err); }

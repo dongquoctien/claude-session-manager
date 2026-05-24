@@ -9,8 +9,8 @@ there, and run `/resume`. With dozens of folders and hundreds of conversations
 that gets painful fast. `csm` lists them all in one place and reopens the one
 you pick in a new terminal, in the right directory, already resuming.
 
-> Status: **Phase 1 (CLI)** working on Windows. Web UI and desktop app are
-> planned — see [PLAN.md](./PLAN.md).
+> Status: **Phase 1 (CLI)** and **Phase 2 (web UI)** working on Windows.
+> Desktop app is left open for later — see [PLAN.md](./PLAN.md).
 
 ## Requirements
 
@@ -40,7 +40,25 @@ npm link -w @csm/cli
 csm list
 ```
 
-## Usage
+## Web UI
+
+Prefer a browser over the terminal? Start the local web UI:
+
+```sh
+npm run web                 # starts the agent and opens your browser
+# or: node packages/agent/bin/csm-web.js [--port 4777] [--no-open]
+```
+
+It serves a searchable, folder-grouped list at `http://127.0.0.1:<port>/`.
+Type to filter, click a row (or press Enter) to open that conversation in a
+new terminal. Tick **fork** to resume as a new forked session.
+
+**Security:** the agent binds `127.0.0.1` only, requires a per-run token
+(embedded in the URL it prints/opens), rejects foreign `Host` headers
+(anti DNS-rebind), and `POST /api/open` only accepts a sessionId already
+present in the scan — it never takes an arbitrary path or command.
+
+## Usage (CLI)
 
 ```sh
 csm list                 # all conversations, grouped by folder, newest first

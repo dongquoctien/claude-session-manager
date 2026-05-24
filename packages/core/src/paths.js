@@ -16,15 +16,22 @@ export function projectsDir() {
 
 /**
  * Claude Code encodes a project's cwd into the folder name by replacing
- * path separators and ':' with '-'. That encoding is lossy, so we never
- * decode it back to a path — we read the real `cwd` from inside the .jsonl
- * instead. This helper is only a human-readable fallback label.
+ * path separators and ':' with '-'. That encoding is lossy (a literal '-' in a
+ * real folder name is indistinguishable from a separator), so we never try to
+ * fully decode it — we read the real `cwd` from inside the .jsonl instead.
+ *
+ * This helper is only a last-resort label for orphan conversations whose folder
+ * is gone and which recorded no cwd. We just recover the drive letter and leave
+ * the rest as-is, rather than guessing wrong separators (e.g. turning
+ * "news-tok" into "news/tok").
  * @param {string} slug folder name under projects/
  * @returns {string}
  */
 export function slugToLabel(slug) {
-  // e.g. "D--Github-news-tok" -> "D:/Github/news-tok"-ish, best-effort only.
-  return slug.replace(/^([A-Za-z])--/, '$1:/').replace(/-/g, '/');
+  // "D--Github-news-tok" -> "D:\Github-news-tok" (drive recovered, rest verbatim)
+  const m = slug.match(/^([A-Za-z])--(.*)$/);
+  if (m) return `${m[1]}:\\${m[2]}`;
+  return slug;
 }
 
 /** @returns {boolean} whether the projects dir currently exists */

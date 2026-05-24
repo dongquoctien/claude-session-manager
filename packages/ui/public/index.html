@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claude Session Manager</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <!-- Token is injected by the agent at serve time; the page never asks for it. -->
+  <script>window.CSM_TOKEN = "%%CSM_TOKEN%%";</script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">◑</span>
+      <span>Claude Session Manager</span>
+    </div>
+    <div class="search-wrap">
+      <input id="search" type="search" placeholder="Search title, folder, branch…" autocomplete="off" autofocus />
+      <kbd>/</kbd>
+    </div>
+    <div class="actions">
+      <label class="toggle" title="Resume as a new forked session (keeps original intact)">
+        <input id="fork" type="checkbox" /> fork
+      </label>
+      <button id="refresh" title="Rescan">↻</button>
+    </div>
+  </header>
+
+  <main id="list" class="list" aria-live="polite"></main>
+
+  <div id="toast" class="toast" role="status"></div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

@@ -6,12 +6,15 @@
   "license": "MIT",
   "workspaces": [
     "packages/core",
-    "packages/cli"
+    "packages/cli",
+    "packages/ui",
+    "packages/agent"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "csm": "node packages/cli/bin/csm.js"
+    "csm": "node packages/cli/bin/csm.js",
+    "web": "node packages/agent/bin/csm-web.js"
   },
   "engines": {
     "node": ">=18"

@@ -122,8 +122,10 @@ export function parseHead(filePath) {
  */
 const HARNESS_PREFIXES = [
   '<local-command-caveat>',
+  '<local-command-stdout>',
   '<command-name>',
   '<command-message>',
+  '<command-args>',
   '<system-reminder>',
   'Caveat: The messages below',
 ];

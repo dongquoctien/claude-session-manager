@@ -100,22 +100,21 @@ Cùng một package `core` (TS) phục vụ cả CLI lẫn local agent ⇒ logic
 
 ## 4. Roadmap theo phase (mỗi phase đều cho ra thứ chạy được)
 
-### Phase 1 — Core engine (CLI chạy được ngay) ★ nền tảng
+### Phase 1 — Core engine (CLI chạy được ngay) ★ nền tảng ✅ XONG
 Mục tiêu: chứng minh đọc dữ liệu + mở terminal hoạt động end-to-end, qua CLI, trước khi đụng UI.
 
-- [ ] `core` (TS): scanner + parser streaming (giới hạn ~200 dòng đầu + đọc mtime/size).
-- [ ] Title resolver với fallback 4 tầng.
-- [ ] Group theo project (`cwd`), sort theo mtime giảm dần.
-- [ ] Launcher: detect `wt.exe`, fallback PowerShell `Start-Process`; build lệnh `claude --resume`.
-- [ ] CLI `csm` (bin Node): `csm list`, `csm list --json`, `csm open <id>`, `csm search <kw>`.
-- [ ] Test với dữ liệu thật 269 file; bench < 0.5s.
-- **Mốc nghiệm thu:** `csm open <id>` mở đúng terminal, đúng folder, resume đúng conversation.
+- [x] `core` (ESM JS): scanner + parser streaming (cap 250 dòng đầu + đọc mtime/size).
+- [x] Title resolver 4 tầng (lọc text rác do harness chèn).
+- [x] Group theo project (`cwd`), sort theo mtime giảm dần; orphan detection; find-by-prefix; search.
+- [x] Launcher: detect `wt.exe` (tin `where.exe` vì WindowsApps alias là reparse 0-byte), fallback PowerShell escape an toàn; `--fork-session`; dry-run.
+- [x] CLI `csm`: `list` / `search` / `open` / `help` + `--json --limit --dry-run --fork --terminal`.
+- [x] Verified trên 269 file thật trong ~250ms; live launch mở Windows Terminal đúng folder & resume. 23/23 core test pass.
 
-### Phase 2 — Web UI trên browser
-- [ ] `agent` (Node HTTP): `GET /sessions`, `GET /sessions?q=`, `POST /open {id}`. Chỉ bind `127.0.0.1`, token cục bộ chống CSRF, CORS chỉ cho origin của chính nó.
-- [ ] Web UI: ô search (fuzzy), danh sách group theo folder, mỗi item hiện title + branch + "x giờ trước" + nút Open.
-- [ ] Auto-refresh khi file thay đổi (file-watch hoặc poll nhẹ vì quét chỉ 0.22s).
-- **Mốc nghiệm thu:** mở browser → tìm → bấm Open → terminal bật lên đúng phiên.
+### Phase 2 — Web UI trên browser ✅ XONG
+- [x] `agent` (Node HTTP, `node:http` thuần): `GET /api/sessions`, `GET /api/sessions?q=`, `POST /api/open`. Bind `127.0.0.1`, token cục bộ (timing-safe), Host allowlist chống DNS-rebind, `/api/open` chỉ nhận sessionId có trong scan.
+- [x] Web UI (HTML+JS thuần, không bundler): ô search debounce, group theo folder, title + branch + "x ago" + id + nút Open; orphan gắn nhãn `missing`.
+- [x] Keyboard nav (`/` focus, ↑↓ chọn, Enter mở, Esc clear) + auto-refresh 15s.
+- [x] **Đã nghiệm thu:** mở browser thật → render 269 conv đúng group → search API lọc chính xác (verified). Cache scan 3s. 9/9 agent test pass.
 
 ### Phase 3 — Desktop app (để ngỏ, Electron)
 > Chỉ làm khi thực sự cần một `.exe` double-click chạy. Core đã là TS nên tái dùng nguyên vẹn.
