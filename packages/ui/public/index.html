@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Claude Session Manager</title>
+  <!-- Inline SVG favicon (orange chat bubble) so no favicon.ico 404. -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23d97757' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z'/%3E%3Cpath d='M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/styles.css" />
   <!-- Token is injected by the agent at serve time; the page never asks for it. -->
   <script>window.CSM_TOKEN = "%%CSM_TOKEN%%";</script>
@@ -47,6 +49,12 @@
         <path d="M12 9v4"/>
         <path d="M12 17h.01"/>
       </g>
+      <g id="i-star" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+      </g>
+      <g id="i-star-filled" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+      </g>
     </defs>
   </svg>
 
@@ -72,6 +80,21 @@
       </button>
     </div>
   </header>
+
+  <div class="filterbar">
+    <button class="chip" data-filter="all" aria-pressed="true">All</button>
+    <button class="chip" data-filter="fav">
+      <svg class="icon" viewBox="0 0 24 24"><use href="#i-star"/></svg> Favorites
+    </button>
+    <button class="chip" data-filter="recent">Last 7 days</button>
+    <label class="chip chip-select">
+      <svg class="icon" viewBox="0 0 24 24"><use href="#i-git-branch"/></svg>
+      <select id="branch-filter"><option value="">All branches</option></select>
+    </label>
+    <label class="chip chip-check">
+      <input id="hide-orphans" type="checkbox" /> Hide&nbsp;missing
+    </label>
+  </div>
 
   <main id="list" class="list" aria-live="polite"></main>
 

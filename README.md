@@ -9,15 +9,18 @@ there, and run `/resume`. With dozens of folders and hundreds of conversations
 that gets painful fast. `csm` lists them all in one place and reopens the one
 you pick in a new terminal, in the right directory, already resuming.
 
-> Status: **Phase 1 (CLI)** and **Phase 2 (web UI)** working on Windows.
-> Desktop app is left open for later — see [PLAN.md](./PLAN.md).
+> Status: **Phases 1–2 + 4** done — CLI, web UI, favorites, filters, preview,
+> cross-platform launching. Desktop (Electron) app is left open for later —
+> see [PLAN.md](./PLAN.md).
 
 ## Requirements
 
 - Node.js >= 18
 - Claude Code installed (`claude` on your PATH)
-- Windows (Windows Terminal `wt.exe` preferred; falls back to PowerShell).
-  macOS/Linux launching is planned.
+- A terminal to open conversations in:
+  - **Windows:** Windows Terminal (`wt.exe`) preferred, falls back to PowerShell
+  - **macOS:** Terminal.app (via `osascript`)
+  - **Linux:** `x-terminal-emulator` (Debian/Ubuntu default-terminal alias)
 
 ## Install (local, from source)
 
@@ -63,9 +66,12 @@ present in the scan — it never takes an arbitrary path or command.
 ```sh
 csm list                 # all conversations, grouped by folder, newest first
 csm list news-tok        # filter by a query (title / folder / branch / id)
+csm list --fav           # only pinned conversations
+csm list --recent 3      # only those touched in the last 3 days
+csm list --branch main   # only on a given git branch
 csm search dashboard     # same as `list <query>`
 csm open <id|prefix>     # open a terminal and resume that conversation
-csm open 0ef59423        # id prefix is enough if unambiguous
+csm fav <id|prefix>      # pin / unpin a conversation
 csm help
 ```
 
@@ -75,9 +81,17 @@ Useful flags:
 |------|-----------|---------|
 | `--json` | list/search | machine-readable output |
 | `--limit <n>` | list/search | cap number of rows |
+| `--fav` | list | only favorites |
+| `--recent [days]` | list | only the last N days (default 7) |
+| `--branch <name>` | list | only this git branch |
+| `--hide-missing` | list | hide conversations whose folder is gone |
 | `--dry-run` | open | print the launch command, don't run it |
 | `--fork` | open | resume with `--fork-session` (new id, keeps history) |
+| `--safe` | open | keep permission prompts (skip is on by default) |
 | `--terminal <wt\|powershell>` | open | force a terminal (default: auto) |
+
+Favorites are stored in `~/.claude/csm-state.json` and shared between the CLI
+and the web UI.
 
 ## How titles are resolved
 

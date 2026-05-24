@@ -2,9 +2,11 @@
 import {
   scanSessions,
   searchSessions,
+  filterSessions,
   findSession,
   buildLaunch,
   launch,
+  toggleFavorite,
   projectsDir,
   projectsDirExists,
 } from '@csm/core';
@@ -16,11 +18,16 @@ Usage:
   csm list [query...]        List conversations (optionally filtered)
   csm search <query...>      Alias for list with a query
   csm open <id|prefix>       Open a terminal and resume that conversation
+  csm fav <id|prefix>        Toggle favorite (pin) for a conversation
   csm help                   Show this help
 
 Options:
   --json                     Output JSON (for list/search)
   --limit <n>                Limit number of rows (default: all)
+  --fav                      (list) Only favorites
+  --recent [days]            (list) Only the last N days (default 7)
+  --branch <name>            (list) Only this git branch
+  --hide-missing             (list) Hide conversations whose folder is gone
   --dry-run                  (open) Print the command instead of running it
   --fork                     (open) Resume with --fork-session (new session id)
   --safe                     (open) Do NOT pass --dangerously-skip-permissions
@@ -30,8 +37,10 @@ Options:
 Examples:
   csm list                   Show everything, grouped by folder
   csm list news-tok          Filter to conversations matching "news-tok"
+  csm list --fav             Only pinned conversations
+  csm list --recent 3        Touched in the last 3 days
   csm open 0ef59423          Resume by id prefix
-  csm open 0ef59423 --safe   Resume but keep permission prompts
+  csm fav 0ef59423           Pin/unpin a conversation
 `;
 
 /** Minimal flag parser. Returns { _, flags }. */
@@ -44,6 +53,15 @@ function parseArgs(argv) {
     else if (a === '--dry-run') flags.dryRun = true;
     else if (a === '--fork') flags.fork = true;
     else if (a === '--safe') flags.safe = true;
+    else if (a === '--fav') flags.fav = true;
+    else if (a === '--hide-missing') flags.hideMissing = true;
+    else if (a === '--branch') flags.branch = argv[++i];
+    else if (a === '--recent') {
+      // optional numeric arg; default 7
+      const n = Number(argv[i + 1]);
+      if (Number.isFinite(n)) { flags.recent = n; i++; }
+      else flags.recent = 7;
+    }
     else if (a === '--limit') flags.limit = Number(argv[++i]);
     else if (a === '--terminal') flags.terminal = argv[++i];
     else _.push(a);
@@ -67,6 +85,12 @@ async function cmdList(args, flags) {
   let sessions = await getSessions();
   const query = args.join(' ').trim();
   if (query) sessions = searchSessions(sessions, query);
+  sessions = filterSessions(sessions, {
+    favoritesOnly: !!flags.fav,
+    hideOrphans: !!flags.hideMissing,
+    branch: flags.branch,
+    recentDays: flags.recent,
+  });
   if (flags.limit && Number.isFinite(flags.limit)) {
     sessions = sessions.slice(0, flags.limit);
   }
@@ -141,6 +165,22 @@ async function cmdOpen(args, flags) {
   );
 }
 
+async function cmdFav(args) {
+  const idArg = args[0];
+  if (!idArg) die('Usage: csm fav <id|prefix>');
+  const sessions = await getSessions();
+  const { match, ambiguous } = findSession(sessions, idArg);
+  if (!match && ambiguous.length === 0) die(`No conversation found for "${idArg}".`);
+  if (!match && ambiguous.length > 0) {
+    process.stderr.write(c.yellow(`"${idArg}" is ambiguous — ${ambiguous.length} matches.\n`));
+    process.exit(2);
+  }
+  const favorited = await toggleFavorite(match.id);
+  process.stdout.write(
+    (favorited ? c.yellow('★ Pinned ') : c.dim('☆ Unpinned ')) + c.bold(match.title) + '\n',
+  );
+}
+
 async function main() {
   const { _, flags } = parseArgs(process.argv.slice(2));
   const cmd = _[0];
@@ -154,6 +194,9 @@ async function main() {
       return cmdList(rest, flags);
     case 'open':
       return cmdOpen(rest, flags);
+    case 'fav':
+    case 'favorite':
+      return cmdFav(rest);
     case 'help':
     case '-h':
     case '--help':

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { projectsDir, slugToLabel } from './paths.js';
 import { parseHead } from './parser.js';
 import { resolveTitle } from './title.js';
+import { favoriteSet } from './state.js';
 
 /**
  * @typedef {Object} Session
@@ -12,13 +13,14 @@ import { resolveTitle } from './title.js';
  * @property {string} titleSource   where the title came from
  * @property {string|null} cwd      real working directory to open in
  * @property {string|null} branch   git branch (distinguishes worktrees)
- * @property {string|null} lastPrompt
+ * @property {string|null} lastPrompt  most recent prompt (for preview)
  * @property {number} mtime         file mtime (ms epoch), for "x ago"
  * @property {number} size          file size in bytes
  * @property {string} projectSlug   the encoded folder name
  * @property {string} projectLabel  best-effort human label for the folder
  * @property {string} file          absolute path to the .jsonl
  * @property {boolean} cwdExists     whether `cwd` still exists on disk (orphan check)
+ * @property {boolean} favorite      whether the user pinned this conversation
  */
 
 const DEFAULT_CONCURRENCY = 24;
@@ -86,6 +88,7 @@ export async function scanSessions(opts = {}) {
   }
 
   const cwdExistsCache = new Map();
+  const favorites = favoriteSet();
   const sessions = await mapLimit(files, concurrency, async ({ file, slug }) => {
     let stat;
     try {
@@ -98,6 +101,7 @@ export async function scanSessions(opts = {}) {
     const meta = await parseHead(file);
     const mtime = stat.mtimeMs;
     const { title, source } = resolveTitle(meta, mtime);
+    const id = path.basename(file, '.jsonl');
 
     let cwdExists = false;
     if (meta.cwd) {
@@ -111,7 +115,7 @@ export async function scanSessions(opts = {}) {
 
     /** @type {Session} */
     return {
-      id: path.basename(file, '.jsonl'),
+      id,
       title,
       titleSource: source,
       cwd: meta.cwd,
@@ -123,9 +127,13 @@ export async function scanSessions(opts = {}) {
       projectLabel: meta.cwd || slugToLabel(slug),
       file,
       cwdExists,
+      favorite: favorites.has(id),
     };
   });
 
+  // Sort newest-first. Favorites are surfaced via a separate group in the UI,
+  // so we keep the base order purely chronological here (single source of truth
+  // for "recent"); callers/UI decide how to present favorites.
   return sessions
     .filter((s) => s !== null)
     .sort((a, b) => b.mtime - a.mtime);
@@ -160,4 +168,26 @@ export function searchSessions(sessions, query) {
     const hay = `${s.title} ${s.projectLabel} ${s.branch || ''} ${s.id}`.toLowerCase();
     return terms.every((t) => hay.includes(t));
   });
+}
+
+/**
+ * Apply structured filters shared by CLI and agent.
+ * @param {Session[]} sessions
+ * @param {Object} [opts]
+ * @param {number} [opts.recentDays]   keep only sessions touched within N days
+ * @param {string} [opts.branch]       keep only sessions on this exact branch
+ * @param {boolean} [opts.favoritesOnly] keep only favorited sessions
+ * @param {boolean} [opts.hideOrphans] drop sessions whose cwd is gone
+ * @returns {Session[]}
+ */
+export function filterSessions(sessions, opts = {}) {
+  let out = sessions;
+  if (opts.favoritesOnly) out = out.filter((s) => s.favorite);
+  if (opts.hideOrphans) out = out.filter((s) => s.cwdExists);
+  if (opts.branch) out = out.filter((s) => s.branch === opts.branch);
+  if (Number.isFinite(opts.recentDays) && opts.recentDays > 0) {
+    const cutoff = Date.now() - opts.recentDays * 86400_000;
+    out = out.filter((s) => s.mtime >= cutoff);
+  }
+  return out;
 }

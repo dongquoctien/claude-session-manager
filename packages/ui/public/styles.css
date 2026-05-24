@@ -118,6 +118,54 @@ html, body {
 #refresh:hover { background: var(--bg-row-hover); color: var(--text); }
 #refresh:active .icon { transform: rotate(180deg); transition: transform 0.3s; }
 
+/* --- filter bar --- */
+.filterbar {
+  position: sticky;
+  top: 61px;
+  z-index: 9;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: rgba(26, 24, 21, 0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  color: var(--text-dim);
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.chip:hover { color: var(--text); border-color: var(--accent-dim); }
+.chip[aria-pressed="true"] {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: #fff;
+}
+.chip .icon { width: 14px; height: 14px; }
+.chip-select, .chip-check { cursor: default; }
+.chip-select select {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  max-width: 200px;
+}
+.chip-select select option { background: var(--bg-elev); color: var(--text); }
+.chip-check input { cursor: pointer; }
+
 /* --- list --- */
 .list { padding: 14px 18px 80px; max-width: 980px; margin: 0 auto; }
 
@@ -128,7 +176,7 @@ html, body {
   gap: 10px;
   margin: 0 2px 8px;
   position: sticky;
-  top: 61px;
+  top: 104px; /* below the sticky topbar (61) + filterbar (~43) */
   background: var(--bg);
   padding: 4px 0;
 }
@@ -177,12 +225,41 @@ html, body {
   background: var(--bg-row-hover);
   border-color: var(--accent-dim);
 }
+.row-star {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  opacity: 0.35;
+  transition: opacity 0.12s, color 0.12s;
+}
+.row:hover .row-star { opacity: 0.7; }
+.row-star:hover { background: var(--bg-elev); color: var(--warn); opacity: 1; }
+.row-star.on { color: var(--warn); opacity: 1; }
 .row-main { flex: 1; min-width: 0; }
 .row-title {
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.row-preview {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-style: italic;
 }
 .row-meta {
   display: flex;

@@ -68,3 +68,32 @@ test('respects custom claudeBin', () => {
   const { args } = buildLaunch({ cwd: 'C:\\x', sessionId: 'id', terminal: 'wt', claudeBin: 'claude-canary' });
   assert.ok(args.includes('claude-canary'));
 });
+
+test('macos build: osascript with cd + claude in the script', () => {
+  const { cmd, args, terminal } = buildLaunch({ cwd: '/Users/me/proj', sessionId: 'id-1', terminal: 'macos' });
+  assert.equal(terminal, 'macos');
+  assert.equal(cmd, 'osascript');
+  const script = args[args.indexOf('-e') + 1];
+  assert.ok(script.includes("cd '/Users/me/proj'"));
+  assert.ok(script.includes('--resume'));
+  assert.ok(script.includes('id-1'));
+});
+
+test('linux build: x-terminal-emulator runs bash -lc with cd + claude', () => {
+  const { cmd, args, terminal } = buildLaunch({ cwd: '/home/me/proj', sessionId: 'id-2', terminal: 'linux' });
+  assert.equal(terminal, 'linux');
+  assert.equal(cmd, 'x-terminal-emulator');
+  const line = args[args.length - 1];
+  assert.ok(line.includes("cd '/home/me/proj'"));
+  assert.ok(line.includes('--resume'));
+  assert.ok(line.includes('id-2'));
+});
+
+test('posix quoting escapes embedded single quotes (macos)', () => {
+  const { args } = buildLaunch({ cwd: "/Users/o'brien/p", sessionId: 'x', terminal: 'macos' });
+  const script = args[args.indexOf('-e') + 1];
+  // The path is shell-quoted (o'\''brien) and then AppleScript-quoted, which
+  // doubles the backslash. Just assert the path made it in intact and quoted.
+  assert.ok(script.includes("o'") && script.includes("brien"));
+  assert.ok(script.includes("cd '/Users/o"));
+});

@@ -6,9 +6,11 @@ import path from 'node:path';
 import {
   scanSessions,
   searchSessions,
+  filterSessions,
   findSession,
   launch,
   buildLaunch,
+  toggleFavorite,
 } from '@csm/core';
 import { publicDir } from '@csm/ui/dir';
 
@@ -71,14 +73,32 @@ export function createServer(opts = {}) {
       // --- routes ---
       if (req.method === 'GET' && url.pathname === '/api/sessions') {
         const q = url.searchParams.get('q') || '';
-        let sessions = await getSessions();
-        if (q.trim()) sessions = searchSessions(sessions, q);
-        return send(res, 200, { sessions, count: sessions.length });
+        const all = await getSessions();
+        // Branch list (from the full set) so the UI can offer a branch filter.
+        const branches = [...new Set(all.map((s) => s.branch).filter(Boolean))].sort();
+        let sessions = q.trim() ? searchSessions(all, q) : all;
+        sessions = filterSessions(sessions, {
+          favoritesOnly: url.searchParams.get('fav') === '1',
+          hideOrphans: url.searchParams.get('orphans') === '0',
+          branch: url.searchParams.get('branch') || undefined,
+          recentDays: Number(url.searchParams.get('recent')) || undefined,
+        });
+        return send(res, 200, { sessions, count: sessions.length, branches });
       }
 
       if (req.method === 'POST' && url.pathname === '/api/open') {
         const body = await readJson(req);
         return handleOpen(res, body, getSessions);
+      }
+
+      if (req.method === 'POST' && url.pathname === '/api/favorite') {
+        const body = await readJson(req);
+        if (!body || typeof body.id !== 'string') {
+          return send(res, 400, { error: 'missing id' });
+        }
+        const favorited = await toggleFavorite(body.id);
+        cache = null; // favorites changed -> invalidate scan cache
+        return send(res, 200, { id: body.id, favorited });
       }
 
       if (req.method === 'GET') {

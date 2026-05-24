@@ -16,8 +16,16 @@ async function api(path, options = {}) {
   return data;
 }
 
-const getSessions = (q) =>
-  api(`/api/sessions${q ? `?q=${encodeURIComponent(q)}` : ''}`).then((d) => d.sessions);
+const fetchSessions = (params) => {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set('q', params.q);
+  if (params.fav) qs.set('fav', '1');
+  if (params.recent) qs.set('recent', String(params.recent));
+  if (params.branch) qs.set('branch', params.branch);
+  if (params.hideOrphans) qs.set('orphans', '0');
+  const s = qs.toString();
+  return api(`/api/sessions${s ? `?${s}` : ''}`);
+};
 
 const openSession = (id, { fork, skipPermissions }) =>
   api('/api/open', {
@@ -25,10 +33,15 @@ const openSession = (id, { fork, skipPermissions }) =>
     body: JSON.stringify({ id, fork, skipPermissions }),
   });
 
+const favoriteSession = (id) =>
+  api('/api/favorite', { method: 'POST', body: JSON.stringify({ id }) });
+
 // --- state ----------------------------------------------------------------
 
 let allRows = []; // flat list of session objects in DOM order (for keyboard nav)
 let activeIndex = -1;
+let activeFilter = 'all'; // 'all' | 'fav' | 'recent'
+let branchesLoaded = false;
 
 const $list = document.getElementById('list');
 const $search = document.getElementById('search');
@@ -36,6 +49,9 @@ const $fork = document.getElementById('fork');
 const $skipperms = document.getElementById('skipperms');
 const $refresh = document.getElementById('refresh');
 const $toast = document.getElementById('toast');
+const $branchFilter = document.getElementById('branch-filter');
+const $hideOrphans = document.getElementById('hide-orphans');
+const $chips = [...document.querySelectorAll('.chip[data-filter]')];
 
 // --- rendering ------------------------------------------------------------
 
@@ -113,8 +129,21 @@ function render(sessions) {
     group.appendChild(head);
 
     for (const s of items) {
-      const row = el('button', 'row');
+      // role=button (not a real <button>) so we can nest the star <button>.
+      const row = el('div', 'row');
       row.dataset.id = s.id;
+      row.setAttribute('role', 'button');
+      row.tabIndex = 0;
+
+      // Star toggle (favorite)
+      const star = el('button', 'row-star' + (s.favorite ? ' on' : ''));
+      star.setAttribute('aria-label', s.favorite ? 'Unfavorite' : 'Favorite');
+      star.appendChild(icon(s.favorite ? 'star-filled' : 'star'));
+      star.addEventListener('click', (e) => {
+        e.stopPropagation(); // don't trigger row open
+        doFavorite(s, star);
+      });
+      row.appendChild(star);
 
       const main = el('div', 'row-main');
       main.appendChild(el('div', 'row-title', s.title));
@@ -131,6 +160,10 @@ function render(sessions) {
         meta.appendChild(el('span', 'src', s.titleSource));
       }
       main.appendChild(meta);
+      // Preview of the last prompt, if any and not already the title.
+      if (s.lastPrompt && s.lastPrompt !== s.title) {
+        main.appendChild(el('div', 'row-preview', s.lastPrompt));
+      }
       row.appendChild(main);
 
       const open = el('span', 'row-open');
@@ -139,6 +172,9 @@ function render(sessions) {
       row.appendChild(open);
 
       row.addEventListener('click', () => doOpen(s));
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doOpen(s); }
+      });
       group.appendChild(row);
       allRows.push({ node: row, session: s });
     }
@@ -173,16 +209,51 @@ async function doOpen(s) {
   }
 }
 
+async function doFavorite(s, starEl) {
+  try {
+    const r = await favoriteSession(s.id);
+    s.favorite = r.favorited;
+    starEl.classList.toggle('on', r.favorited);
+    starEl.replaceChildren(icon(r.favorited ? 'star-filled' : 'star'));
+    starEl.setAttribute('aria-label', r.favorited ? 'Unfavorite' : 'Favorite');
+    // If we're viewing the favorites filter, a removal should drop the row.
+    if (activeFilter === 'fav' && !r.favorited) refresh();
+  } catch (err) {
+    toast(`Failed to update favorite: ${err.message}`, 'err');
+  }
+}
+
+/** Current filter params derived from chips + controls. */
+function currentParams() {
+  return {
+    q: $search.value,
+    fav: activeFilter === 'fav',
+    recent: activeFilter === 'recent' ? 7 : undefined,
+    branch: $branchFilter.value || undefined,
+    hideOrphans: $hideOrphans.checked,
+  };
+}
+
 let searchTimer;
 async function refresh() {
-  const q = $search.value;
   try {
-    const sessions = await getSessions(q);
-    render(sessions);
+    const data = await fetchSessions(currentParams());
+    if (!branchesLoaded && Array.isArray(data.branches)) {
+      populateBranches(data.branches);
+      branchesLoaded = true;
+    }
+    render(data.sessions);
   } catch (err) {
     $list.innerHTML = '';
     $list.appendChild(el('div', 'empty err', `Error: ${err.message}`));
   }
+}
+
+function populateBranches(branches) {
+  const cur = $branchFilter.value;
+  $branchFilter.replaceChildren(new Option('All branches', ''));
+  for (const b of branches) $branchFilter.appendChild(new Option(b, b));
+  $branchFilter.value = cur;
 }
 
 // --- keyboard nav ---------------------------------------------------------
@@ -226,6 +297,18 @@ $search.addEventListener('input', () => {
   searchTimer = setTimeout(refresh, 120);
 });
 $refresh.addEventListener('click', refresh);
+
+// --- filter bar -----------------------------------------------------------
+
+for (const chip of $chips) {
+  chip.addEventListener('click', () => {
+    activeFilter = chip.dataset.filter;
+    for (const c of $chips) c.setAttribute('aria-pressed', String(c === chip));
+    refresh();
+  });
+}
+$branchFilter.addEventListener('change', refresh);
+$hideOrphans.addEventListener('change', refresh);
 
 // --- boot -----------------------------------------------------------------
 

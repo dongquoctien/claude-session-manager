@@ -7,7 +7,7 @@ import os from 'node:os';
  * @property {string} sessionId      conversation to resume
  * @property {boolean} [fork]        use --fork-session (new id, keep history)
  * @property {boolean} [skipPermissions] add --dangerously-skip-permissions
- * @property {'wt'|'powershell'|'auto'} [terminal='auto']
+ * @property {'wt'|'powershell'|'macos'|'linux'|'auto'} [terminal='auto']
  * @property {string} [claudeBin='claude']
  */
 
@@ -35,14 +35,18 @@ export function findWindowsTerminal() {
 }
 
 /**
- * Decide which terminal strategy to use.
+ * Decide which terminal strategy to use for the current platform.
  * @param {'wt'|'powershell'|'auto'} pref
- * @returns {'wt'|'powershell'}
+ * @returns {'wt'|'powershell'|'macos'|'linux'}
  */
 function pickTerminal(pref) {
-  if (pref === 'wt') return 'wt';
-  if (pref === 'powershell') return 'powershell';
-  // auto
+  // Explicit choices (also lets callers/tests force a platform strategy).
+  if (pref === 'wt' || pref === 'powershell' || pref === 'macos' || pref === 'linux') {
+    return pref;
+  }
+  // auto: derive from the current platform.
+  if (process.platform === 'darwin') return 'macos';
+  if (process.platform === 'linux') return 'linux';
   return findWindowsTerminal() ? 'wt' : 'powershell';
 }
 
@@ -51,7 +55,7 @@ function pickTerminal(pref) {
  * can either spawn it or print it (dry-run) without re-deriving anything.
  *
  * @param {LaunchOptions} opts
- * @returns {{ cmd: string, args: string[], terminal: 'wt'|'powershell' }}
+ * @returns {{ cmd: string, args: string[], terminal: string }}
  */
 export function buildLaunch(opts) {
   const {
@@ -86,9 +90,29 @@ export function buildLaunch(opts) {
     };
   }
 
-  // PowerShell fallback: open a new window that cd's into cwd and runs claude,
-  // staying open afterwards (-NoExit). Set-Location handles spaces/Unicode when
-  // the path is passed as a single-quoted literal.
+  if (kind === 'macos') {
+    // Drive Terminal.app via AppleScript. Build a POSIX shell line that cd's
+    // into cwd then runs claude, both quoted for the shell.
+    const shellLine = `cd ${shQuote(cwd)} && ${shQuote(claudeBin)} ${claudeArgs.map(shQuote).join(' ')}`;
+    const script = `tell application "Terminal" to do script ${asQuote(shellLine)}\ntell application "Terminal" to activate`;
+    return { cmd: 'osascript', args: ['-e', script], terminal: 'macos' };
+  }
+
+  if (kind === 'linux') {
+    // x-terminal-emulator is the Debian/Ubuntu alternatives symlink to the
+    // user's default terminal; `-e` runs a command. We wrap in bash -lc so the
+    // cd + claude run as one command and the user's PATH/login env applies.
+    const shellLine = `cd ${shQuote(cwd)} && ${shQuote(claudeBin)} ${claudeArgs.map(shQuote).join(' ')}; exec bash`;
+    return {
+      cmd: 'x-terminal-emulator',
+      args: ['-e', 'bash', '-lc', shellLine],
+      terminal: 'linux',
+    };
+  }
+
+  // PowerShell fallback (Windows without wt): open a new window that cd's into
+  // cwd and runs claude, staying open afterwards (-NoExit). Set-Location
+  // handles spaces/Unicode when the path is a single-quoted literal.
   const psCommand = `Set-Location -LiteralPath ${psSingleQuote(cwd)}; & ${psSingleQuote(claudeBin)} ${claudeArgs.map(psSingleQuote).join(' ')}`;
   return {
     cmd: 'powershell.exe',
@@ -100,11 +124,26 @@ export function buildLaunch(opts) {
 /**
  * Quote a value as a PowerShell single-quoted string literal
  * (single quotes inside are doubled).
- * @param {string} s
- * @returns {string}
+ * @param {string} s @returns {string}
  */
 function psSingleQuote(s) {
   return `'${String(s).replace(/'/g, "''")}'`;
+}
+
+/**
+ * Quote a value as a POSIX shell single-quoted literal.
+ * @param {string} s @returns {string}
+ */
+function shQuote(s) {
+  return `'${String(s).replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Quote a value as an AppleScript string literal (for osascript).
+ * @param {string} s @returns {string}
+ */
+function asQuote(s) {
+  return `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
 /**
@@ -133,11 +172,9 @@ function colorEnv() {
  * @returns {{ terminal: string, cmd: string, args: string[] }}
  */
 export function launch(opts) {
-  if (process.platform !== 'win32') {
-    throw new Error(
-      `Launching is only implemented for Windows so far (got ${os.platform()}). ` +
-      `macOS/Linux support is planned (Phase 4).`,
-    );
+  const supported = ['win32', 'darwin', 'linux'];
+  if (!supported.includes(process.platform)) {
+    throw new Error(`Launching is not supported on ${os.platform()}.`);
   }
   if (!opts.cwd) throw new Error('Cannot launch: session has no recorded cwd.');
   if (!opts.sessionId) throw new Error('Cannot launch: missing sessionId.');

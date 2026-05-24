@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findSession, searchSessions } from '../src/scanner.js';
+import { findSession, searchSessions, filterSessions } from '../src/scanner.js';
 
+const now = Date.now();
 const sessions = [
-  { id: 'aaaa1111-0000', title: 'News tok video', projectLabel: 'D:\\Github\\news-tok', branch: 'main', mtime: 3 },
-  { id: 'aaaa2222-0000', title: 'Dashboard build', projectLabel: 'C:\\Users\\me', branch: 'dev', mtime: 2 },
-  { id: 'bbbb3333-0000', title: 'Fix caption', projectLabel: 'D:\\Github\\news-tok', branch: 'fix-x', mtime: 1 },
+  { id: 'aaaa1111-0000', title: 'News tok video', projectLabel: 'D:\\Github\\news-tok', branch: 'main', mtime: now, cwdExists: true, favorite: true },
+  { id: 'aaaa2222-0000', title: 'Dashboard build', projectLabel: 'C:\\Users\\me', branch: 'dev', mtime: now - 10 * 86400000, cwdExists: true, favorite: false },
+  { id: 'bbbb3333-0000', title: 'Fix caption', projectLabel: 'D:\\Github\\news-tok', branch: 'fix-x', mtime: now - 1, cwdExists: false, favorite: false },
 ];
 
 test('findSession: exact id', () => {
@@ -49,4 +50,32 @@ test('searchSessions: multi-term AND', () => {
 
 test('searchSessions: empty query returns all', () => {
   assert.equal(searchSessions(sessions, '   ').length, 3);
+});
+
+test('filterSessions: favoritesOnly', () => {
+  const r = filterSessions(sessions, { favoritesOnly: true });
+  assert.equal(r.length, 1);
+  assert.equal(r[0].id, 'aaaa1111-0000');
+});
+
+test('filterSessions: hideOrphans drops missing cwd', () => {
+  const r = filterSessions(sessions, { hideOrphans: true });
+  assert.ok(r.every((s) => s.cwdExists));
+  assert.equal(r.length, 2);
+});
+
+test('filterSessions: branch exact match', () => {
+  const r = filterSessions(sessions, { branch: 'dev' });
+  assert.equal(r.length, 1);
+  assert.equal(r[0].branch, 'dev');
+});
+
+test('filterSessions: recentDays cutoff', () => {
+  const r = filterSessions(sessions, { recentDays: 7 });
+  // the 10-day-old one is excluded
+  assert.ok(!r.some((s) => s.id === 'aaaa2222-0000'));
+});
+
+test('filterSessions: no opts is identity', () => {
+  assert.equal(filterSessions(sessions, {}).length, 3);
 });

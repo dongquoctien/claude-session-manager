@@ -102,10 +102,17 @@ export function parseHead(filePath) {
         if (text) meta.firstUserText = text;
       }
 
-      // Early exit once we have the fields that matter most. We still allow
-      // lastPrompt to update later, but title + cwd + branch are enough to
-      // render a row, so stop reading large files as soon as we have them.
-      if (meta.aiTitle && meta.cwd && meta.gitBranch && meta.firstUserText) {
+      // Early exit once we have everything we render, INCLUDING lastPrompt
+      // (used for the preview). lastPrompt usually appears by ~line 16, well
+      // before MAX_HEAD_LINES, so requiring it here still stops large files
+      // quickly without scanning to the end.
+      if (
+        meta.aiTitle &&
+        meta.cwd &&
+        meta.gitBranch &&
+        meta.firstUserText &&
+        meta.lastPrompt
+      ) {
         finish();
       }
     });

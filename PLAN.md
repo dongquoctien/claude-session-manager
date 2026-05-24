@@ -124,13 +124,15 @@ Mục tiêu: chứng minh đọc dữ liệu + mở terminal hoạt động end-
 - [ ] Phím tắt global mở app (tuỳ chọn, ví dụ Ctrl+Alt+C).
 - **Mốc nghiệm thu:** double-click `.exe` → app chạy không cần terminal.
 
-### Phase 4 — Polish
-- [ ] Favorite / pin conversation hay dùng.
-- [ ] Lọc theo project, theo branch, theo "đụng tới trong 7 ngày".
-- [ ] Hiển thị preview lastPrompt khi hover/chọn.
-- [ ] Tuỳ chọn `--fork-session` (resume nhưng tạo session mới).
-- [ ] Phát hiện & ẩn conversation trong folder đã xoá (cwd không còn tồn tại) — hoặc đánh dấu "orphan".
-- [ ] Đa nền tảng: macOS (`Terminal.app`/iTerm) & Linux (x-terminal-emulator) cho launcher.
+### Phase 4 — Polish ✅ XONG
+- [x] Favorite / pin: lưu vào `~/.claude/csm-state.json` (atomic write); star trên web, `csm fav <id>` + ★ trên CLI; dùng chung core state.
+- [x] Lọc: `--fav` / `--recent [days]` / `--branch <name>` / `--hide-missing` (CLI) và chip Favorites / Last 7 days / branch dropdown / Hide-missing (web). `filterSessions()` ở core dùng chung.
+- [x] Preview lastPrompt dưới mỗi row (parser giờ giữ lastPrompt; early-exit vẫn ~250ms vì nó ở dòng ~16).
+- [x] `--fork-session` (đã có từ Phase 1, giữ).
+- [x] Orphan: badge `missing` (Phase 2) + filter ẩn (`--hide-missing` / "Hide missing").
+- [x] Đa nền tảng launcher: macOS (`osascript`→Terminal.app) & Linux (`x-terminal-emulator -e bash -lc`); buildLaunch nhận terminal `wt|powershell|macos|linux|auto`.
+- [x] Thêm: inline SVG favicon (hết 404).
+- **Đã nghiệm thu:** 49/49 test pass (40 core + 9 agent). Verified trên browser thật — star/fav-filter/branch-filter/preview hoạt động; console sạch.
 
 ---
 

@@ -76,9 +76,10 @@ export function renderGrouped(sessions) {
 /** @param {import('@csm/core').Session} s */
 export function renderRow(s) {
   const id = c.dim(s.id.slice(0, 8));
+  const star = s.favorite ? c.yellow('★ ') : '';
   const branch = s.branch ? c.magenta(s.branch) : c.dim('—');
   const when = c.dim(timeAgo(s.mtime));
   const titleSrc =
     s.titleSource === 'aiTitle' ? '' : c.dim(` ·${s.titleSource}`);
-  return `  ${id}  ${s.title}${titleSrc}\n            ${branch}  ${when}`;
+  return `  ${id}  ${star}${s.title}${titleSrc}\n            ${branch}  ${when}`;
 }
