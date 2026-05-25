@@ -67,3 +67,27 @@ test('handles content as array of blocks', async () => {
   const m = await parseHead(file);
   assert.equal(m.firstUserText, 'block text');
 });
+
+test('uses the LATEST branch when the conversation switches branches', async () => {
+  // Mirrors real data: a conversation that checked out several branches over
+  // its life. /resume shows the latest; we must too (read from the tail).
+  const lines = [
+    { type: 'user', message: { content: 'start' }, cwd: 'D:\\proj', gitBranch: 'feature-old' },
+    { type: 'ai-title', aiTitle: 'Long session' },
+  ];
+  for (let i = 0; i < 500; i++) lines.push({ type: 'assistant', message: { content: 'x'.repeat(50) }, gitBranch: 'feature-mid' });
+  // the most recent activity is on a different branch
+  lines.push({ type: 'assistant', message: { content: 'final' }, gitBranch: 'staging' });
+  const file = tmpJsonl('switch.jsonl', lines);
+  const m = await parseHead(file);
+  assert.equal(m.gitBranch, 'staging', 'should report the latest branch, not the first');
+});
+
+test('falls back to head branch when tail has none', async () => {
+  const file = tmpJsonl('headbranch.jsonl', [
+    { type: 'user', message: { content: 'hi' }, cwd: 'C:\\p', gitBranch: 'only-branch' },
+    { type: 'ai-title', aiTitle: 'T' },
+  ]);
+  const m = await parseHead(file);
+  assert.equal(m.gitBranch, 'only-branch');
+});

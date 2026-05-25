@@ -8,6 +8,49 @@ import readline from 'node:readline';
  */
 const MAX_HEAD_LINES = 250;
 
+/** Bytes to read from the tail when looking for the most recent gitBranch. */
+const TAIL_BYTES = 96 * 1024;
+
+/**
+ * The git branch a conversation is "on" can change over its life (the user
+ * checks out other branches mid-session). Claude Code's own /resume picker
+ * shows the LATEST branch, but that record can be thousands of lines in — far
+ * past the head scan. So read just the tail of the file and return the last
+ * gitBranch seen there. Returns null if none found in the tail.
+ * @param {string} filePath
+ * @param {number} fileSize
+ * @returns {Promise<string|null>}
+ */
+function readTailBranch(filePath, fileSize) {
+  return new Promise((resolve) => {
+    if (fileSize <= 0) return resolve(null);
+    const start = Math.max(0, fileSize - TAIL_BYTES);
+    let buf = '';
+    let stream;
+    try {
+      stream = fs.createReadStream(filePath, { encoding: 'utf8', start });
+    } catch {
+      return resolve(null);
+    }
+    stream.on('data', (chunk) => { buf += chunk; });
+    stream.on('error', () => resolve(null));
+    stream.on('end', () => {
+      let branch = null;
+      // Scan complete lines; the first chunk may start mid-line, that's fine —
+      // JSON.parse just fails on it and we skip. Walk lines in order so the
+      // last valid gitBranch wins (most recent).
+      for (const line of buf.split('\n')) {
+        if (!line || line.indexOf('gitBranch') === -1) continue;
+        try {
+          const d = JSON.parse(line);
+          if (d && typeof d.gitBranch === 'string' && d.gitBranch) branch = d.gitBranch;
+        } catch { /* partial/garbage line — skip */ }
+      }
+      resolve(branch);
+    });
+  });
+}
+
 /**
  * @typedef {Object} RawMeta
  * @property {string|null} aiTitle
@@ -40,6 +83,11 @@ export function parseHead(filePath) {
       version: null,
     };
 
+    let fileSize = 0;
+    try {
+      fileSize = fs.statSync(filePath).size;
+    } catch { /* ignore */ }
+
     let stream;
     try {
       stream = fs.createReadStream(filePath, { encoding: 'utf8' });
@@ -57,7 +105,14 @@ export function parseHead(filePath) {
       done = true;
       rl.close();
       stream.destroy();
-      resolve(meta);
+      // The branch from the head is the OLDEST one; the conversation may have
+      // switched branches later. Prefer the latest branch from the tail so we
+      // match Claude Code's /resume picker. Only the tail read is extra work,
+      // and only when the file is bigger than the head we already scanned.
+      readTailBranch(filePath, fileSize).then((tailBranch) => {
+        if (tailBranch) meta.gitBranch = tailBranch;
+        resolve(meta);
+      });
     };
 
     rl.on('line', (line) => {
