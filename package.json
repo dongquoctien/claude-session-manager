@@ -1,6 +1,6 @@
 {
   "name": "claude-session-manager",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "List and instantly reopen any Claude Code conversation across all your folders.",
   "license": "MIT",
