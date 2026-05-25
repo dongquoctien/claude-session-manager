@@ -45,6 +45,10 @@ npm run desktop:dist     # build Windows .exe installer
   **Any delete must move both.**
 - The folder `<slug>` is a lossy encoding of the cwd — never decode it back;
   read the real `cwd`/`gitBranch` from inside the `.jsonl`.
+- **`gitBranch` changes over a conversation's life** (user checks out other
+  branches mid-session). Claude Code's `/resume` shows the LATEST branch, so we
+  read it from the file TAIL (`readTailBranch`), not the head — the head branch
+  is the oldest. Using the head made web disagree with `/resume`.
 - `aiTitle` may sit deep in the file; `lastPrompt` around line ~16. The parser
   streams the head, capped (`MAX_HEAD_LINES`), so 50MB+ files stay fast.
 - ~30% of conversations have no `aiTitle` → 4-tier title fallback
