@@ -14,6 +14,12 @@ you pick in a new terminal, in the right directory, already resuming.
 CLI, web UI, and a desktop app — favorites, filters, last-prompt preview,
 cross-platform launching, and delete-to-trash with restore. See [PLAN.md](./PLAN.md).
 
+![Claude Session Manager web UI](./docs/screenshot-web-ui.png)
+
+Conversations are grouped by folder; the search box matches across **title,
+folder name, and branch**, so you can type a path like `oh-api` to jump
+straight to every conversation under that folder.
+
 ## Download
 
 **Windows:** grab the installer from the
