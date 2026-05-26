@@ -131,6 +131,7 @@ Useful flags:
 | `--fork` | open | resume with `--fork-session` (new id, keeps history) |
 | `--safe` | open | keep permission prompts (skip is on by default) |
 | `--terminal <wt\|powershell>` | open | force a terminal (default: auto) |
+| `--folder <slug-substr>` | open/fav/rm | pick a copy by folder when one id exists in two folders (worktree duplicates) |
 | `--yes` / `-y` | rm | actually move to trash (without it, just previews) |
 | `--empty` | trash | purge trash (`--days N` to only purge older than N days) |
 

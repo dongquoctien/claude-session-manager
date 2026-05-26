@@ -110,7 +110,10 @@ export function createServer(opts = {}) {
         // Only delete a session that exists in the current scan (never an
         // arbitrary path); deleteSession also guards against traversal.
         const sessions = await getSessions();
-        const { match } = findSession(sessions, id);
+        // slug pins which copy when the same UUID exists in two project folders
+        // (worktree duplicates), so we never trash the wrong file.
+        const slug = body && typeof body.slug === 'string' ? body.slug : undefined;
+        const { match } = findSession(sessions, id, { slug });
         if (!match) return send(res, 404, { error: 'unknown id' });
         const r = await deleteSession(match);
         cache = null; // list changed
@@ -168,11 +171,13 @@ async function handleOpen(res, body, getSessions) {
   if (!id) return send(res, 400, { error: 'missing id' });
 
   const sessions = await getSessions();
-  const { match, ambiguous } = findSession(sessions, id);
+  // slug pins which copy when the same UUID exists in two project folders.
+  const slug = body && typeof body.slug === 'string' ? body.slug : undefined;
+  const { match, ambiguous } = findSession(sessions, id, { slug });
   if (!match) {
     return send(res, ambiguous.length ? 409 : 404, {
       error: ambiguous.length ? 'ambiguous id' : 'unknown id',
-      candidates: ambiguous.map((s) => s.id),
+      candidates: ambiguous.map((s) => ({ id: s.id, projectSlug: s.projectSlug })),
     });
   }
   if (!match.cwd) return send(res, 422, { error: 'session has no cwd' });

@@ -27,17 +27,19 @@ const fetchSessions = (params) => {
   return api(`/api/sessions${s ? `?${s}` : ''}`);
 };
 
-const openSession = (id, { fork, skipPermissions }) =>
+// slug pins which copy when the same UUID exists in two project folders
+// (a session started in a worktree, then continued in the main repo).
+const openSession = (id, { fork, skipPermissions, slug }) =>
   api('/api/open', {
     method: 'POST',
-    body: JSON.stringify({ id, fork, skipPermissions }),
+    body: JSON.stringify({ id, fork, skipPermissions, slug }),
   });
 
 const favoriteSession = (id) =>
   api('/api/favorite', { method: 'POST', body: JSON.stringify({ id }) });
 
-const deleteSessionReq = (id) =>
-  api('/api/delete', { method: 'POST', body: JSON.stringify({ id }) });
+const deleteSessionReq = (id, slug) =>
+  api('/api/delete', { method: 'POST', body: JSON.stringify({ id, slug }) });
 
 const restoreSessionReq = (id) =>
   api('/api/restore', { method: 'POST', body: JSON.stringify({ id }) });
@@ -276,6 +278,7 @@ async function doOpen(s) {
     const r = await openSession(s.id, {
       fork: $fork.checked,
       skipPermissions: $skipperms.checked,
+      slug: s.projectSlug,
     });
     toast(`Opening “${r.title || s.title}” via ${r.terminal}`, 'ok');
   } catch (err) {
@@ -301,7 +304,7 @@ async function doDelete(s, rowEl) {
   const ok = await confirmModal({ title: s.title, path: s.cwd || s.projectLabel });
   if (!ok) return;
   try {
-    await deleteSessionReq(s.id);
+    await deleteSessionReq(s.id, s.projectSlug);
     rowEl.remove(); // immediate visual feedback
     toast(`Moved “${s.title}” to trash`, 'warn', {
       label: 'Undo',

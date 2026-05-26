@@ -140,18 +140,60 @@ export async function scanSessions(opts = {}) {
 }
 
 /**
+ * Of several recordings of the SAME conversation UUID (the worktree case —
+ * Claude Code leaves the session file under both the main repo's slug and the
+ * worktree's slug), pick the one most worth resuming: a live folder beats a
+ * `(missing)` one, then the bigger file (the real transcript beats a tiny
+ * worktree stub), then the most recently touched.
+ * @param {Session[]} dupes
+ * @returns {Session}
+ */
+function preferReal(dupes) {
+  return [...dupes].sort((a, b) => {
+    if (a.cwdExists !== b.cwdExists) return a.cwdExists ? -1 : 1;
+    if (a.size !== b.size) return b.size - a.size;
+    return b.mtime - a.mtime;
+  })[0];
+}
+
+/**
  * Find one session by exact id, or by unambiguous id prefix.
+ *
+ * The same UUID can legitimately appear under two project slugs (a session
+ * started in a git worktree, then continued in the main repo). So `id` is NOT
+ * a unique key. When a query lands on several recordings of the *same* UUID we
+ * auto-prefer the live/real one (see {@link preferReal}); we only report
+ * `ambiguous` when the matches are genuinely *different* conversations. Pass
+ * `opts.slug` (exact or substring) to pin a specific copy.
+ *
  * @param {Session[]} sessions
  * @param {string} idOrPrefix
+ * @param {Object} [opts]
+ * @param {string} [opts.slug]  restrict to sessions whose projectSlug matches
+ *                              (exact, else case-insensitive substring)
  * @returns {{ match: Session|null, ambiguous: Session[] }}
  */
-export function findSession(sessions, idOrPrefix) {
-  const exact = sessions.find((s) => s.id === idOrPrefix);
-  if (exact) return { match: exact, ambiguous: [] };
-  const pref = sessions.filter((s) => s.id.startsWith(idOrPrefix));
-  if (pref.length === 1) return { match: pref[0], ambiguous: [] };
-  if (pref.length > 1) return { match: null, ambiguous: pref };
-  return { match: null, ambiguous: [] };
+export function findSession(sessions, idOrPrefix, opts = {}) {
+  let pool = sessions;
+  if (opts.slug) {
+    const exactSlug = pool.filter((s) => s.projectSlug === opts.slug);
+    const slugQ = opts.slug.toLowerCase();
+    pool = exactSlug.length
+      ? exactSlug
+      : pool.filter((s) => s.projectSlug.toLowerCase().includes(slugQ));
+  }
+
+  // Exact-id matches first; then fall back to prefix matches.
+  let hits = pool.filter((s) => s.id === idOrPrefix);
+  if (hits.length === 0) hits = pool.filter((s) => s.id.startsWith(idOrPrefix));
+
+  if (hits.length === 0) return { match: null, ambiguous: [] };
+  if (hits.length === 1) return { match: hits[0], ambiguous: [] };
+
+  // Multiple hits: only truly ambiguous if they're different conversations.
+  const distinctIds = new Set(hits.map((s) => s.id));
+  if (distinctIds.size === 1) return { match: preferReal(hits), ambiguous: [] };
+  return { match: null, ambiguous: hits };
 }
 
 /**

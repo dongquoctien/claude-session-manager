@@ -40,6 +40,8 @@ Options:
   --safe                     (open) Do NOT pass --dangerously-skip-permissions
                              (it is added by default for friction-free resume)
   --terminal <wt|powershell> (open) Force a terminal (default: auto)
+  --folder <slug-substr>     (open/fav/rm) Pick a copy by folder when the same
+                             id exists in more than one (worktree duplicates)
 
 Examples:
   csm list                   Show everything, grouped by folder
@@ -77,6 +79,7 @@ function parseArgs(argv) {
     }
     else if (a === '--limit') flags.limit = Number(argv[++i]);
     else if (a === '--terminal') flags.terminal = argv[++i];
+    else if (a === '--folder') flags.folder = argv[++i];
     else _.push(a);
   }
   return { _, flags };
@@ -133,17 +136,13 @@ async function cmdOpen(args, flags) {
   if (!idArg) die('Usage: csm open <id|prefix>');
 
   const sessions = await getSessions();
-  const { match, ambiguous } = findSession(sessions, idArg);
+  const { match, ambiguous } = findSession(sessions, idArg, { slug: flags.folder });
 
   if (!match && ambiguous.length === 0) {
     die(`No conversation found for "${idArg}".`);
   }
   if (!match && ambiguous.length > 0) {
-    process.stderr.write(c.yellow(`"${idArg}" is ambiguous — ${ambiguous.length} matches:\n`));
-    for (const s of ambiguous.slice(0, 10)) {
-      process.stderr.write(renderRow(s) + '\n');
-    }
-    process.exit(2);
+    reportAmbiguous(idArg, ambiguous);
   }
 
   if (!match.cwd) {
@@ -178,22 +177,35 @@ async function cmdOpen(args, flags) {
   );
 }
 
+/**
+ * Print the ambiguous-match list with a hint to disambiguate by folder, then
+ * exit 2. (Reached only for genuinely different conversations sharing a
+ * prefix — same-UUID worktree duplicates are auto-resolved in findSession.)
+ */
+function reportAmbiguous(idArg, ambiguous) {
+  process.stderr.write(c.yellow(`"${idArg}" is ambiguous — ${ambiguous.length} matches:\n`));
+  for (const s of ambiguous.slice(0, 10)) {
+    process.stderr.write(renderRow(s) + c.dim(`  [${s.projectSlug}]`) + '\n');
+  }
+  process.stderr.write(
+    c.dim('Use a longer id, or pin a folder: ') +
+    c.green(`--folder <slug-substr>`) + '\n',
+  );
+  process.exit(2);
+}
+
 /** Resolve a single session by id/prefix or exit with a helpful message. */
-async function resolveOne(idArg, verb) {
+async function resolveOne(idArg, verb, flags = {}) {
   if (!idArg) die(`Usage: csm ${verb} <id|prefix>`);
   const sessions = await getSessions();
-  const { match, ambiguous } = findSession(sessions, idArg);
+  const { match, ambiguous } = findSession(sessions, idArg, { slug: flags.folder });
   if (!match && ambiguous.length === 0) die(`No conversation found for "${idArg}".`);
-  if (!match && ambiguous.length > 0) {
-    process.stderr.write(c.yellow(`"${idArg}" is ambiguous — ${ambiguous.length} matches:\n`));
-    for (const s of ambiguous.slice(0, 10)) process.stderr.write(renderRow(s) + '\n');
-    process.exit(2);
-  }
+  if (!match && ambiguous.length > 0) reportAmbiguous(idArg, ambiguous);
   return match;
 }
 
-async function cmdFav(args) {
-  const match = await resolveOne(args[0], 'fav');
+async function cmdFav(args, flags) {
+  const match = await resolveOne(args[0], 'fav', flags);
   const favorited = await toggleFavorite(match.id);
   process.stdout.write(
     (favorited ? c.yellow('★ Pinned ') : c.dim('☆ Unpinned ')) + c.bold(match.title) + '\n',
@@ -201,7 +213,7 @@ async function cmdFav(args) {
 }
 
 async function cmdRm(args, flags) {
-  const match = await resolveOne(args[0], 'rm');
+  const match = await resolveOne(args[0], 'rm', flags);
   if (!flags.yes) {
     process.stdout.write(
       c.yellow('Would move to trash:\n') +
@@ -273,7 +285,7 @@ async function main() {
       return cmdOpen(rest, flags);
     case 'fav':
     case 'favorite':
-      return cmdFav(rest);
+      return cmdFav(rest, flags);
     case 'rm':
     case 'delete':
       return cmdRm(rest, flags);
