@@ -669,8 +669,9 @@ const Monitor = (() => {
     return s.projectLabel;
   }
 
-  function statCard(label, value, sub, iconName) {
+  function statCard(label, value, sub, iconName, title) {
     const card = el('div', 'stat');
+    if (title) card.title = title;
     const head = el('div', 'stat-head');
     head.appendChild(el('span', 'stat-label', label));
     head.appendChild(icon(iconName, 'stat-icon'));
@@ -696,7 +697,8 @@ const Monitor = (() => {
     const cacheTok = s.tokens.cacheCreation + s.tokens.cacheRead;
     $stats.replaceChildren(
       statCard('Total Tokens', fmt.tokens(s.totalTokens), `${fmt.int(s.messages)} messages`, 'zap'),
-      statCard('Session Cost', fmt.cost(s.costUSD), (s.model || '').replace(/^claude-/, ''), 'coins'),
+      statCard('Session Cost (est.)', fmt.cost(s.costUSD), (s.model || '').replace(/^claude-/, ''), 'coins',
+        'Estimated from token usage and public list prices — not an exact bill.'),
       statCard('Cache Tokens', fmt.tokens(cacheTok), `${(s.cacheHitRate * 100).toFixed(1)}% cache hit`, 'database'),
       statCard('Input/Output', io, 'In/Out ratio', 'activity'),
       statCard('Files Modified', String(s.modifiedFiles.length), 'Changed files', 'file'),
@@ -799,19 +801,23 @@ const Monitor = (() => {
 
   function renderSysStats(st) {
     if (!st) return;
+    const estTitle = 'Estimated from token usage and public list prices — not an exact bill.';
     const rows = [
       ['Active Sessions', String(st.activeSessions)],
       ['Total Sessions', String(st.totalSessions)],
       ['Total Messages', fmt.int(st.totalMessages)],
       ['Tokens Used', fmt.tokens(st.tokensUsed)],
-      ['Total Cost', fmt.cost(st.totalCost)],
+      ['Total Cost (est.)', fmt.cost(st.totalCost), estTitle],
       ['Avg Duration', fmt.duration(st.avgDurationMs)],
       ['Top Model', (st.topModel || '—').replace(/^claude-/, '')],
     ];
     $sysstats.replaceChildren();
-    for (const [k, v] of rows) {
-      $sysstats.appendChild(el('dt', null, k));
-      $sysstats.appendChild(el('dd', null, v));
+    for (const [k, v, title] of rows) {
+      const dt = el('dt', null, k);
+      const dd = el('dd', null, v);
+      if (title) { dt.title = title; dd.title = title; }
+      $sysstats.appendChild(dt);
+      $sysstats.appendChild(dd);
     }
   }
 
