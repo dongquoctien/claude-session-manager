@@ -102,6 +102,16 @@
     </label>
   </div>
 
+  <!-- Selection action bar — hidden until at least one row is checked. -->
+  <div id="selection-bar" class="selection-bar" hidden>
+    <span id="selection-count" class="selection-count" aria-live="polite">0 selected</span>
+    <button id="selection-clear" class="btn btn-ghost">Clear</button>
+    <button id="selection-delete" class="btn btn-danger">
+      <svg class="icon" viewBox="0 0 24 24"><use href="#i-trash"/></svg>
+      Delete selected
+    </button>
+  </div>
+
   <main id="list" class="list" aria-live="polite"></main>
 
   <div id="toast" class="toast" role="status"></div>

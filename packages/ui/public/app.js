@@ -42,12 +42,25 @@ const deleteSessionReq = (id) =>
 const restoreSessionReq = (id) =>
   api('/api/restore', { method: 'POST', body: JSON.stringify({ id }) });
 
+// items: [{ id, slug }] — slug pins the right copy of a duplicated UUID.
+const deleteBulkReq = (items) =>
+  api('/api/delete-bulk', { method: 'POST', body: JSON.stringify({ items }) });
+
+const restoreBulkReq = (ids) =>
+  api('/api/restore-bulk', { method: 'POST', body: JSON.stringify({ ids }) });
+
 // --- state ----------------------------------------------------------------
 
 let allRows = []; // flat list of session objects in DOM order (for keyboard nav)
 let activeIndex = -1;
 let activeFilter = 'all'; // 'all' | 'fav' | 'recent'
 let branchesLoaded = false;
+
+// Multi-select for bulk delete. Keyed by id|projectSlug so two recordings of
+// the same UUID (worktree duplicates) are tracked separately.
+const selected = new Map(); // selKey -> session
+let lastCheckedIndex = -1;  // anchor for shift-click range selection
+const selKey = (s) => `${s.id}|${s.projectSlug}`;
 
 const $list = document.getElementById('list');
 const $search = document.getElementById('search');
@@ -58,6 +71,10 @@ const $toast = document.getElementById('toast');
 const $branchFilter = document.getElementById('branch-filter');
 const $hideOrphans = document.getElementById('hide-orphans');
 const $chips = [...document.querySelectorAll('.chip[data-filter]')];
+const $selBar = document.getElementById('selection-bar');
+const $selCount = document.getElementById('selection-count');
+const $selClear = document.getElementById('selection-clear');
+const $selDelete = document.getElementById('selection-delete');
 
 // --- confirm modal (replaces window.confirm) ------------------------------
 
@@ -166,6 +183,24 @@ function render(sessions) {
   for (const [label, items] of groupByProject(sessions)) {
     const group = el('section', 'group');
     const head = el('div', 'group-head');
+
+    // Select-all checkbox for this group.
+    const groupCheck = el('input', 'group-check');
+    groupCheck.type = 'checkbox';
+    groupCheck.setAttribute('aria-label', `Select all in ${label}`);
+    const groupRows = []; // {checkbox, session} filled as rows render
+    groupCheck.addEventListener('change', () => {
+      for (const gr of groupRows) {
+        if (gr.checkbox.checked !== groupCheck.checked) {
+          gr.checkbox.checked = groupCheck.checked;
+          setSelected(gr.session, gr.checkbox.checked);
+        }
+      }
+      groupCheck.indeterminate = false;
+      updateSelectionBar();
+    });
+    head.appendChild(groupCheck);
+
     head.appendChild(icon('folder', 'folder-icon'));
     head.appendChild(el('span', 'group-label', label));
     if (items[0] && !items[0].cwdExists) {
@@ -176,13 +211,39 @@ function render(sessions) {
     }
     head.appendChild(el('span', 'group-count', String(items.length)));
     group.appendChild(head);
+    const syncGroupCheck = () => {
+      const n = groupRows.filter((gr) => gr.checkbox.checked).length;
+      groupCheck.checked = n === groupRows.length && n > 0;
+      groupCheck.indeterminate = n > 0 && n < groupRows.length;
+    };
 
     for (const s of items) {
+      const rowIndex = allRows.length; // flat index for shift-click ranges
       // role=button (not a real <button>) so we can nest the star <button>.
       const row = el('div', 'row');
       row.dataset.id = s.id;
       row.setAttribute('role', 'button');
       row.tabIndex = 0;
+
+      // Selection checkbox (bulk delete). Restores checked state on re-render.
+      const check = el('input', 'row-check');
+      check.type = 'checkbox';
+      check.setAttribute('aria-label', `Select ${s.title}`);
+      check.checked = selected.has(selKey(s));
+      if (check.checked) row.classList.add('selected');
+      check.addEventListener('click', (e) => {
+        e.stopPropagation(); // don't trigger row open
+        if (e.shiftKey && lastCheckedIndex >= 0) {
+          selectRange(lastCheckedIndex, rowIndex, check.checked);
+        }
+        setSelected(s, check.checked);
+        row.classList.toggle('selected', check.checked);
+        lastCheckedIndex = rowIndex;
+        syncGroupCheck();
+        updateSelectionBar();
+      });
+      row.appendChild(check);
+      groupRows.push({ checkbox: check, session: s, row });
 
       // Star toggle (favorite)
       const star = el('button', 'row-star' + (s.favorite ? ' on' : ''));
@@ -237,10 +298,12 @@ function render(sessions) {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doOpen(s); }
       });
       group.appendChild(row);
-      allRows.push({ node: row, session: s });
+      allRows.push({ node: row, session: s, checkbox: check, syncGroupCheck });
     }
+    syncGroupCheck();
     $list.appendChild(group);
   }
+  updateSelectionBar();
 }
 
 // --- actions --------------------------------------------------------------
@@ -320,6 +383,90 @@ async function doDelete(s, rowEl) {
   }
 }
 
+// --- multi-select / bulk delete -------------------------------------------
+
+/** Add/remove a session from the selection set. */
+function setSelected(s, on) {
+  if (on) selected.set(selKey(s), s);
+  else selected.delete(selKey(s));
+}
+
+/** Select (or deselect) every row between two flat indices, inclusive. */
+function selectRange(from, to, on) {
+  const [lo, hi] = from <= to ? [from, to] : [to, from];
+  for (let i = lo; i <= hi; i++) {
+    const r = allRows[i];
+    if (!r) continue;
+    r.checkbox.checked = on;
+    r.node.classList.toggle('selected', on);
+    setSelected(r.session, on);
+    r.syncGroupCheck();
+  }
+}
+
+/** Show/hide the selection bar and refresh its count. */
+function updateSelectionBar() {
+  const n = selected.size;
+  $selBar.hidden = n === 0;
+  $selCount.textContent = `${n} selected`;
+}
+
+/** Clear the selection and uncheck every visible row. */
+function clearSelection() {
+  selected.clear();
+  lastCheckedIndex = -1;
+  for (const r of allRows) {
+    r.checkbox.checked = false;
+    r.checkbox.indeterminate = false;
+    r.node.classList.remove('selected');
+    r.syncGroupCheck();
+  }
+  updateSelectionBar();
+}
+
+async function doDeleteBulk() {
+  const sessions = [...selected.values()];
+  if (sessions.length === 0) return;
+  const ok = await confirmModal({
+    title: `Move ${sessions.length} conversation${sessions.length > 1 ? 's' : ''} to trash?`,
+    path: sessions.length === 1 ? (sessions[0].cwd || sessions[0].projectLabel) : 'Multiple folders',
+  });
+  if (!ok) return;
+
+  const items = sessions.map((s) => ({ id: s.id, slug: s.projectSlug }));
+  const ids = sessions.map((s) => s.id);
+  try {
+    const r = await deleteBulkReq(items);
+    // Remove the deleted rows from the DOM immediately.
+    const okKeys = new Set(
+      r.results.filter((x) => x.ok).map((x) => x.id),
+    );
+    for (const row of allRows) {
+      if (okKeys.has(row.session.id) && selected.has(selKey(row.session))) {
+        row.node.remove();
+      }
+    }
+    clearSelection();
+    const msg = r.failed > 0
+      ? `Moved ${r.deleted} to trash · ${r.failed} failed`
+      : `Moved ${r.deleted} to trash`;
+    toast(msg, r.failed > 0 ? 'warn' : 'warn', {
+      label: 'Undo',
+      fn: async () => {
+        try {
+          await restoreBulkReq(ids);
+          toast(`Restored ${ids.length}`, 'ok');
+          refresh();
+        } catch (err) {
+          toast(`Undo failed: ${err.message}`, 'err');
+        }
+      },
+    });
+  } catch (err) {
+    toast(`Bulk delete failed: ${err.message}`, 'err');
+  }
+}
+
 /** Current filter params derived from chips + controls. */
 function currentParams() {
   return {
@@ -384,8 +531,12 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     doOpen(allRows[activeIndex].session);
   } else if (e.key === 'Escape') {
-    $search.value = '';
-    refresh();
+    if (selected.size > 0) {
+      clearSelection(); // first Escape drops the selection
+    } else {
+      $search.value = '';
+      refresh();
+    }
   }
 });
 
@@ -407,12 +558,22 @@ for (const chip of $chips) {
 $branchFilter.addEventListener('change', refresh);
 $hideOrphans.addEventListener('change', refresh);
 
+// --- selection bar --------------------------------------------------------
+
+$selClear.addEventListener('click', clearSelection);
+$selDelete.addEventListener('click', doDeleteBulk);
+
 // --- boot -----------------------------------------------------------------
 
 refresh();
 // Light auto-refresh so new conversations show up without a manual reload.
+// Skip while a selection is in progress so we don't wipe the user's checkboxes.
 setInterval(() => {
-  if (document.visibilityState === 'visible' && document.activeElement !== $search) {
+  if (
+    document.visibilityState === 'visible' &&
+    document.activeElement !== $search &&
+    selected.size === 0
+  ) {
     refresh();
   }
 }, 15000);
