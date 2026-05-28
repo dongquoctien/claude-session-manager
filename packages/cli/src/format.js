@@ -14,7 +14,56 @@ export const c = {
   yellow: (s) => wrap(33, s),
   red: (s) => wrap(31, s),
   magenta: (s) => wrap(35, s),
+  white: (s) => wrap('97', s), // bright white — for values that should stand out
 };
+
+/** Whether ANSI styling is active (mirrors the c.* helpers). */
+export const colorEnabled = useColor;
+
+/**
+ * Paint a string with explicit SGR codes that DON'T reset until the very end —
+ * needed for full-row backgrounds (zebra striping), where a per-cell reset
+ * would tear a hole in the row's background.
+ * @param {string} s
+ * @param {number[]} codes  SGR numbers, e.g. [48,5,236] for a 256-color bg
+ */
+export function sgr(s, codes) {
+  if (!useColor || !codes.length) return s;
+  return `\x1b[${codes.join(';')}m${s}`;
+}
+const RESET = useColor ? '\x1b[0m' : '';
+export { RESET };
+
+/**
+ * Color a cost value by magnitude so expensive sessions jump out.
+ * @param {number} usd @param {string} text  pre-formatted "$x.xx"
+ */
+export function colorCost(usd, text) {
+  if (usd >= 500) return c.red(text);
+  if (usd >= 100) return c.yellow(text);
+  return text;
+}
+
+/**
+ * Color a cache-hit rate: only flag LOW rates (they cost real money), keep
+ * the common 100% dim so the eye skips it.
+ * @param {number} rate 0..1 @param {string} text  pre-formatted "xx%"
+ */
+export function colorCache(rate, text) {
+  if (rate < 0.9) return c.red(text);
+  if (rate < 0.98) return c.yellow(text);
+  return c.dim(text);
+}
+
+/**
+ * Color a token total by magnitude: big consumers brighter.
+ * @param {number} tokens @param {string} text  pre-formatted "x.xM"
+ */
+export function colorTokens(tokens, text) {
+  if (tokens >= 1e9) return c.bold(c.white(text));
+  if (tokens >= 1e8) return c.white(text);
+  return text;
+}
 
 /**
  * Human "x ago" from an epoch-ms timestamp.
@@ -42,6 +91,47 @@ export function humanSize(bytes) {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+/** Compact token count: 1234 -> "1.2K", 11200000 -> "11.2M". @param {number} n */
+export function humanTokens(n) {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}K`;
+  if (n < 1_000_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  return `${(n / 1_000_000_000).toFixed(1)}B`;
+}
+
+/** USD with a leading $ and 2 decimals. @param {number} n */
+export function humanCost(n) {
+  return `$${n.toFixed(2)}`;
+}
+
+/** Duration from ms: "1h 43m", "5m", "12s". @param {number} ms */
+export function humanDuration(ms) {
+  if (!ms || ms < 0) return '—';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem ? `${h}h ${rem}m` : `${h}h`;
+}
+
+/** Color an activity label by kind. @param {string} activity */
+export function colorActivity(activity) {
+  switch (activity) {
+    case 'idle': return c.dim(activity);
+    case 'waiting': return c.yellow(activity);
+    case 'thinking': return c.cyan(activity);
+    case 'writing': return c.green(activity);
+    case 'reading': return c.cyan(activity);
+    case 'searching': return c.magenta(activity);
+    case 'running': return c.green(activity);
+    case 'browsing': return c.magenta(activity);
+    case 'spawning': return c.yellow(activity);
+    default: return activity;
+  }
 }
 
 /**

@@ -45,6 +45,14 @@ npm run desktop:dist     # build Windows .exe installer
   **Any delete must move both.**
 - The folder `<slug>` is a lossy encoding of the cwd — never decode it back;
   read the real `cwd`/`gitBranch` from inside the `.jsonl`.
+- **A session UUID is NOT unique across slugs.** When a conversation is started
+  in a git worktree then continued in the main repo, Claude Code leaves the
+  *same* `<uuid>.jsonl` under both slugs — typically a tiny stub (~119 B, dead
+  worktree) plus the real transcript (MB+, live folder). So `findSession` keys
+  on id **and** disambiguates: same-UUID hits auto-prefer the live/larger/newer
+  copy (`preferReal`), and only *distinct* ids sharing a prefix are `ambiguous`.
+  Callers can pin a copy with `opts.slug` (CLI `--folder`, web sends
+  `projectSlug` on open/delete) so the wrong file is never opened or trashed.
 - **`gitBranch` changes over a conversation's life** (user checks out other
   branches mid-session). Claude Code's `/resume` shows the LATEST branch, so we
   read it from the file TAIL (`readTailBranch`), not the head — the head branch

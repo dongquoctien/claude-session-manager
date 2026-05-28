@@ -15,12 +15,14 @@ import {
   projectsDirExists,
 } from '@csm/core';
 import { renderGrouped, renderRow, c, timeAgo, humanSize } from '../src/format.js';
+import { runMonitor } from '../src/monitor.js';
 
 const HELP = `csm — Claude Session Manager
 
 Usage:
   csm list [query...]        List conversations (optionally filtered)
   csm search <query...>      Alias for list with a query
+  csm monitor                Live dashboard: tokens, cost, activity (Ctrl+C quits)
   csm open <id|prefix>       Open a terminal and resume that conversation
   csm fav <id|prefix>        Toggle favorite (pin) for a conversation
   csm rm <id|prefix>         Move a conversation to trash (preview unless --yes)
@@ -29,7 +31,10 @@ Usage:
   csm help                   Show this help
 
 Options:
-  --json                     Output JSON (for list/search)
+  --json                     Output JSON (for list/search/monitor)
+  --active                   (monitor) Only show currently-active sessions
+  --once                     (monitor) Print one frame and exit (no live loop)
+  --interval <ms>            (monitor) Refresh interval, min 250 (default 1000)
   --limit <n>                Limit number of rows (default: all)
   --fav                      (list) Only favorites
   --recent [days]            (list) Only the last N days (default 7)
@@ -40,6 +45,8 @@ Options:
   --safe                     (open) Do NOT pass --dangerously-skip-permissions
                              (it is added by default for friction-free resume)
   --terminal <wt|powershell> (open) Force a terminal (default: auto)
+  --folder <slug-substr>     (open/fav/rm) Pick a copy by folder when the same
+                             id exists in more than one (worktree duplicates)
 
 Examples:
   csm list                   Show everything, grouped by folder
@@ -66,6 +73,9 @@ function parseArgs(argv) {
     else if (a === '--fav') flags.fav = true;
     else if (a === '--yes' || a === '-y') flags.yes = true;
     else if (a === '--empty') flags.empty = true;
+    else if (a === '--active') flags.active = true;
+    else if (a === '--once') flags.once = true;
+    else if (a === '--interval') flags.interval = Number(argv[++i]);
     else if (a === '--days') flags.days = Number(argv[++i]);
     else if (a === '--hide-missing') flags.hideMissing = true;
     else if (a === '--branch') flags.branch = argv[++i];
@@ -77,6 +87,7 @@ function parseArgs(argv) {
     }
     else if (a === '--limit') flags.limit = Number(argv[++i]);
     else if (a === '--terminal') flags.terminal = argv[++i];
+    else if (a === '--folder') flags.folder = argv[++i];
     else _.push(a);
   }
   return { _, flags };
@@ -133,17 +144,13 @@ async function cmdOpen(args, flags) {
   if (!idArg) die('Usage: csm open <id|prefix>');
 
   const sessions = await getSessions();
-  const { match, ambiguous } = findSession(sessions, idArg);
+  const { match, ambiguous } = findSession(sessions, idArg, { slug: flags.folder });
 
   if (!match && ambiguous.length === 0) {
     die(`No conversation found for "${idArg}".`);
   }
   if (!match && ambiguous.length > 0) {
-    process.stderr.write(c.yellow(`"${idArg}" is ambiguous — ${ambiguous.length} matches:\n`));
-    for (const s of ambiguous.slice(0, 10)) {
-      process.stderr.write(renderRow(s) + '\n');
-    }
-    process.exit(2);
+    reportAmbiguous(idArg, ambiguous);
   }
 
   if (!match.cwd) {
@@ -178,22 +185,35 @@ async function cmdOpen(args, flags) {
   );
 }
 
+/**
+ * Print the ambiguous-match list with a hint to disambiguate by folder, then
+ * exit 2. (Reached only for genuinely different conversations sharing a
+ * prefix — same-UUID worktree duplicates are auto-resolved in findSession.)
+ */
+function reportAmbiguous(idArg, ambiguous) {
+  process.stderr.write(c.yellow(`"${idArg}" is ambiguous — ${ambiguous.length} matches:\n`));
+  for (const s of ambiguous.slice(0, 10)) {
+    process.stderr.write(renderRow(s) + c.dim(`  [${s.projectSlug}]`) + '\n');
+  }
+  process.stderr.write(
+    c.dim('Use a longer id, or pin a folder: ') +
+    c.green(`--folder <slug-substr>`) + '\n',
+  );
+  process.exit(2);
+}
+
 /** Resolve a single session by id/prefix or exit with a helpful message. */
-async function resolveOne(idArg, verb) {
+async function resolveOne(idArg, verb, flags = {}) {
   if (!idArg) die(`Usage: csm ${verb} <id|prefix>`);
   const sessions = await getSessions();
-  const { match, ambiguous } = findSession(sessions, idArg);
+  const { match, ambiguous } = findSession(sessions, idArg, { slug: flags.folder });
   if (!match && ambiguous.length === 0) die(`No conversation found for "${idArg}".`);
-  if (!match && ambiguous.length > 0) {
-    process.stderr.write(c.yellow(`"${idArg}" is ambiguous — ${ambiguous.length} matches:\n`));
-    for (const s of ambiguous.slice(0, 10)) process.stderr.write(renderRow(s) + '\n');
-    process.exit(2);
-  }
+  if (!match && ambiguous.length > 0) reportAmbiguous(idArg, ambiguous);
   return match;
 }
 
-async function cmdFav(args) {
-  const match = await resolveOne(args[0], 'fav');
+async function cmdFav(args, flags) {
+  const match = await resolveOne(args[0], 'fav', flags);
   const favorited = await toggleFavorite(match.id);
   process.stdout.write(
     (favorited ? c.yellow('★ Pinned ') : c.dim('☆ Unpinned ')) + c.bold(match.title) + '\n',
@@ -201,7 +221,7 @@ async function cmdFav(args) {
 }
 
 async function cmdRm(args, flags) {
-  const match = await resolveOne(args[0], 'rm');
+  const match = await resolveOne(args[0], 'rm', flags);
   if (!flags.yes) {
     process.stdout.write(
       c.yellow('Would move to trash:\n') +
@@ -269,11 +289,19 @@ async function main() {
       return cmdList(rest, flags);
     case 'search':
       return cmdList(rest, flags);
+    case 'monitor':
+    case 'watch':
+      return runMonitor({
+        activeOnly: !!flags.active,
+        once: !!flags.once,
+        json: !!flags.json,
+        intervalMs: flags.interval,
+      });
     case 'open':
       return cmdOpen(rest, flags);
     case 'fav':
     case 'favorite':
-      return cmdFav(rest);
+      return cmdFav(rest, flags);
     case 'rm':
     case 'delete':
       return cmdRm(rest, flags);
