@@ -5,6 +5,7 @@ import { projectsDir, slugToLabel } from './paths.js';
 import { parseHead } from './parser.js';
 import { resolveTitle } from './title.js';
 import { favoriteSet } from './state.js';
+import { MetricsCache, resolveActivity, isActive } from './metrics.js';
 
 /**
  * @typedef {Object} Session
@@ -137,6 +138,125 @@ export async function scanSessions(opts = {}) {
   return sessions
     .filter((s) => s !== null)
     .sort((a, b) => b.mtime - a.mtime);
+}
+
+/**
+ * @typedef {import('./scanner.js').Session & {
+ *   activity: string,
+ *   active: boolean,
+ *   status: string,
+ *   model: string|null,
+ *   tokens: { input:number, output:number, cacheCreation:number, cacheRead:number },
+ *   totalTokens: number,
+ *   costUSD: number,
+ *   cacheHitRate: number,
+ *   messages: number,
+ *   durationMs: number,
+ *   modifiedFiles: string[],
+ *   recentMessages: {role:string,text:string,ts:number}[],
+ * }} MonitorSession
+ */
+
+/** A module-level cache so repeated scans (the realtime loop) stay incremental. */
+const sharedMetricsCache = new MetricsCache();
+
+/**
+ * Like {@link scanSessions} but enriches every session with realtime metrics
+ * (tokens, estimated cost, cache hit-rate, activity/status, modified files).
+ * Uses an incremental byte-offset cache, so calling it on a tight loop only
+ * re-reads the bytes appended since the previous call.
+ *
+ * @param {Object} [opts]
+ * @param {string} [opts.dir]          override projects dir (testing)
+ * @param {number} [opts.concurrency]
+ * @param {MetricsCache} [opts.cache]  override the shared metrics cache (testing)
+ * @param {number} [opts.now]          epoch ms used to resolve activity (testing)
+ * @returns {Promise<{ sessions: MonitorSession[], systemStats: SystemStats }>}
+ */
+export async function scanMetrics(opts = {}) {
+  const base = await scanSessions({ dir: opts.dir, concurrency: opts.concurrency });
+  const cache = opts.cache || sharedMetricsCache;
+  const now = opts.now || Date.now();
+
+  const seen = new Set();
+  const sessions = await mapLimit(base, opts.concurrency || DEFAULT_CONCURRENCY, async (s) => {
+    seen.add(s.file);
+    const m = await cache.get(s.file);
+    const totalTokens = m.tokens.input + m.tokens.output + m.tokens.cacheCreation + m.tokens.cacheRead;
+    const cacheDenom = m.tokens.cacheRead + m.tokens.input;
+    return {
+      ...s,
+      activity: resolveActivity(m, now),
+      active: isActive(m, now),
+      status: m.status,
+      model: m.model,
+      tokens: m.tokens,
+      totalTokens,
+      costUSD: m.costUSD,
+      cacheHitRate: cacheDenom > 0 ? m.tokens.cacheRead / cacheDenom : 0,
+      messages: m.totalMessages,
+      durationMs: m.firstActivityMs && m.lastActivityMs ? m.lastActivityMs - m.firstActivityMs : 0,
+      modifiedFiles: m.modifiedFiles,
+      recentMessages: m.recentMessages,
+    };
+  });
+
+  cache.prune(seen);
+
+  // Active sessions float to the top (most recent first); the rest follow by mtime.
+  sessions.sort((a, b) => {
+    if (a.active !== b.active) return a.active ? -1 : 1;
+    return b.mtime - a.mtime;
+  });
+
+  return { sessions, systemStats: computeSystemStats(sessions) };
+}
+
+/**
+ * @typedef {Object} SystemStats
+ * @property {number} activeSessions
+ * @property {number} totalSessions
+ * @property {number} totalMessages
+ * @property {number} tokensUsed
+ * @property {number} totalCost
+ * @property {number} avgDurationMs
+ * @property {string|null} topModel
+ */
+
+/** @param {MonitorSession[]} sessions @returns {SystemStats} */
+function computeSystemStats(sessions) {
+  let totalMessages = 0;
+  let tokensUsed = 0;
+  let totalCost = 0;
+  let durationSum = 0;
+  let durationCount = 0;
+  let activeSessions = 0;
+  const modelCounts = new Map();
+
+  for (const s of sessions) {
+    totalMessages += s.messages;
+    tokensUsed += s.totalTokens;
+    totalCost += s.costUSD;
+    if (s.durationMs > 0) { durationSum += s.durationMs; durationCount += 1; }
+    if (s.active) activeSessions += 1;
+    if (s.model) modelCounts.set(s.model, (modelCounts.get(s.model) || 0) + 1);
+  }
+
+  let topModel = null;
+  let topCount = -1;
+  for (const [model, count] of modelCounts) {
+    if (count > topCount) { topModel = model; topCount = count; }
+  }
+
+  return {
+    activeSessions,
+    totalSessions: sessions.length,
+    totalMessages,
+    tokensUsed,
+    totalCost,
+    avgDurationMs: durationCount > 0 ? durationSum / durationCount : 0,
+    topModel,
+  };
 }
 
 /**

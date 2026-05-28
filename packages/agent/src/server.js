@@ -5,6 +5,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import {
   scanSessions,
+  scanMetrics,
   searchSessions,
   filterSessions,
   findSession,
@@ -13,6 +14,7 @@ import {
   toggleFavorite,
   deleteSession,
   restoreSession,
+  projectsDir,
 } from '@csm/core';
 import { publicDir } from '@csm/ui/dir';
 
@@ -73,6 +75,30 @@ export function createServer(opts = {}) {
       }
 
       // --- routes ---
+      if (req.method === 'GET' && url.pathname === '/api/stream') {
+        return handleStream(req, res);
+      }
+
+      if (req.method === 'GET' && url.pathname === '/api/monitor') {
+        // One-shot metrics snapshot (polling fallback for the SSE stream).
+        const data = await scanMetrics();
+        return send(res, 200, data);
+      }
+
+      if (req.method === 'GET' && url.pathname === '/api/session') {
+        const id = url.searchParams.get('id');
+        if (!id) return send(res, 400, { error: 'missing id' });
+        const slug = url.searchParams.get('slug') || undefined;
+        const { sessions } = await scanMetrics();
+        const { match, ambiguous } = findSession(sessions, id, { slug });
+        if (!match) {
+          return send(res, ambiguous.length ? 409 : 404, {
+            error: ambiguous.length ? 'ambiguous id' : 'unknown id',
+          });
+        }
+        return send(res, 200, { session: match });
+      }
+
       if (req.method === 'GET' && url.pathname === '/api/sessions') {
         const q = url.searchParams.get('q') || '';
         const all = await getSessions();
@@ -207,6 +233,79 @@ async function handleOpen(res, body, getSessions) {
     cwd: match.cwd,
     cwdExists: match.cwdExists,
   });
+}
+
+/**
+ * Server-Sent Events stream of the metrics snapshot. Pushes an update whenever
+ * a .jsonl under the projects dir changes (debounced), plus a periodic
+ * heartbeat so proxies/clients don't time the connection out. The token is
+ * already validated by the gate before we get here (EventSource can't set
+ * headers, so the client passes ?token=).
+ */
+function handleStream(req, res) {
+  res.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-store',
+    connection: 'keep-alive',
+    // Disable proxy buffering (nginx) so events flush immediately.
+    'x-accel-buffering': 'no',
+  });
+  res.write('retry: 3000\n\n');
+
+  let closed = false;
+  let scanning = false;
+  let pending = false;
+
+  const push = async () => {
+    if (closed) return;
+    if (scanning) { pending = true; return; }
+    scanning = true;
+    try {
+      const data = await scanMetrics();
+      if (!closed) res.write(`event: snapshot\ndata: ${JSON.stringify(data)}\n\n`);
+    } catch (err) {
+      if (!closed) res.write(`event: error\ndata: ${JSON.stringify({ error: String(err && err.message || err) })}\n\n`);
+    } finally {
+      scanning = false;
+      if (pending && !closed) { pending = false; push(); }
+    }
+  };
+
+  // Debounce filesystem events: Claude writes many lines in bursts.
+  let debounce = null;
+  const onChange = () => {
+    if (debounce) clearTimeout(debounce);
+    debounce = setTimeout(push, 400);
+  };
+
+  let watcher = null;
+  try {
+    watcher = fs.watch(projectsDir(), { recursive: true }, onChange);
+  } catch {
+    // No projects dir / watch unsupported: fall back to interval-only updates.
+  }
+
+  // Heartbeat comment keeps the socket warm; also a slow poll as a safety net
+  // in case a platform misses fs events.
+  const heartbeat = setInterval(() => {
+    if (!closed) res.write(': ping\n\n');
+  }, 15000);
+  const safetyPoll = setInterval(push, 5000);
+
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    if (debounce) clearTimeout(debounce);
+    clearInterval(heartbeat);
+    clearInterval(safetyPoll);
+    if (watcher) watcher.close();
+  };
+  req.on('close', cleanup);
+  req.on('error', cleanup);
+  res.on('error', cleanup);
+
+  // Initial snapshot right away.
+  push();
 }
 
 // --- security helpers -----------------------------------------------------

@@ -15,12 +15,14 @@ import {
   projectsDirExists,
 } from '@csm/core';
 import { renderGrouped, renderRow, c, timeAgo, humanSize } from '../src/format.js';
+import { runMonitor } from '../src/monitor.js';
 
 const HELP = `csm — Claude Session Manager
 
 Usage:
   csm list [query...]        List conversations (optionally filtered)
   csm search <query...>      Alias for list with a query
+  csm monitor                Live dashboard: tokens, cost, activity (Ctrl+C quits)
   csm open <id|prefix>       Open a terminal and resume that conversation
   csm fav <id|prefix>        Toggle favorite (pin) for a conversation
   csm rm <id|prefix>         Move a conversation to trash (preview unless --yes)
@@ -29,7 +31,10 @@ Usage:
   csm help                   Show this help
 
 Options:
-  --json                     Output JSON (for list/search)
+  --json                     Output JSON (for list/search/monitor)
+  --active                   (monitor) Only show currently-active sessions
+  --once                     (monitor) Print one frame and exit (no live loop)
+  --interval <ms>            (monitor) Refresh interval, min 250 (default 1000)
   --limit <n>                Limit number of rows (default: all)
   --fav                      (list) Only favorites
   --recent [days]            (list) Only the last N days (default 7)
@@ -68,6 +73,9 @@ function parseArgs(argv) {
     else if (a === '--fav') flags.fav = true;
     else if (a === '--yes' || a === '-y') flags.yes = true;
     else if (a === '--empty') flags.empty = true;
+    else if (a === '--active') flags.active = true;
+    else if (a === '--once') flags.once = true;
+    else if (a === '--interval') flags.interval = Number(argv[++i]);
     else if (a === '--days') flags.days = Number(argv[++i]);
     else if (a === '--hide-missing') flags.hideMissing = true;
     else if (a === '--branch') flags.branch = argv[++i];
@@ -281,6 +289,14 @@ async function main() {
       return cmdList(rest, flags);
     case 'search':
       return cmdList(rest, flags);
+    case 'monitor':
+    case 'watch':
+      return runMonitor({
+        activeOnly: !!flags.active,
+        once: !!flags.once,
+        json: !!flags.json,
+        intervalMs: flags.interval,
+      });
     case 'open':
       return cmdOpen(rest, flags);
     case 'fav':

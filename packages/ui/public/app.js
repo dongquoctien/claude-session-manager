@@ -57,9 +57,106 @@ const $fork = document.getElementById('fork');
 const $skipperms = document.getElementById('skipperms');
 const $refresh = document.getElementById('refresh');
 const $toast = document.getElementById('toast');
-const $branchFilter = document.getElementById('branch-filter');
 const $hideOrphans = document.getElementById('hide-orphans');
 const $chips = [...document.querySelectorAll('.chip[data-filter]')];
+
+// --- custom dropdown (replaces native <select> for a themed option list) ---
+
+/**
+ * A small accessible dropdown built on a button + <ul role=listbox>. Exposes a
+ * select-like surface: `.value` (get/set), `.setOptions([{value,label}])`, and
+ * `.onChange(fn)`. Closes on outside click / Escape; supports arrow keys.
+ * @param {string} rootId
+ */
+function createDropdown(rootId) {
+  const root = document.getElementById(rootId);
+  const trigger = root.querySelector('.dropdown-trigger');
+  const label = root.querySelector('.dropdown-label');
+  const menu = root.querySelector('.dropdown-menu');
+  let options = [];
+  let value = '';
+  let changeFn = null;
+  let activeIdx = -1;
+
+  function labelFor(v) {
+    const o = options.find((x) => x.value === v);
+    return o ? o.label : (options[0] ? options[0].label : '');
+  }
+
+  function open() {
+    if (!menu.hidden) return;
+    buildMenu();
+    menu.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    activeIdx = Math.max(0, options.findIndex((o) => o.value === value));
+    highlight(activeIdx);
+    document.addEventListener('click', onOutside, true);
+  }
+  function close() {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    trigger.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('click', onOutside, true);
+  }
+  function onOutside(e) { if (!root.contains(e.target)) close(); }
+
+  function buildMenu() {
+    menu.replaceChildren(...options.map((o, i) => {
+      const li = el('li', 'dropdown-option' + (o.value === value ? ' selected' : ''));
+      li.setAttribute('role', 'option');
+      li.setAttribute('aria-selected', String(o.value === value));
+      li.dataset.idx = String(i);
+      const check = icon('check', 'dropdown-check');
+      li.appendChild(check);
+      li.appendChild(el('span', null, o.label));
+      li.addEventListener('click', () => { pick(o.value); close(); });
+      li.addEventListener('mousemove', () => highlight(i));
+      return li;
+    }));
+  }
+  function highlight(i) {
+    activeIdx = i;
+    [...menu.children].forEach((li, idx) => li.classList.toggle('active', idx === i));
+    const cur = menu.children[i];
+    if (cur) cur.scrollIntoView({ block: 'nearest' });
+  }
+  function pick(v) {
+    if (v === value) return;
+    value = v;
+    label.textContent = labelFor(v);
+    if (changeFn) changeFn(v);
+  }
+
+  trigger.addEventListener('click', () => (menu.hidden ? open() : close()));
+  trigger.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (menu.hidden) open(); else if (activeIdx >= 0) { pick(options[activeIdx].value); close(); }
+    } else if (e.key === 'ArrowUp') { e.preventDefault(); if (menu.hidden) open(); }
+    else if (e.key === 'Escape') close();
+  });
+  menu.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); highlight(Math.min(activeIdx + 1, options.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); highlight(Math.max(activeIdx - 1, 0)); }
+    else if (e.key === 'Enter') { e.preventDefault(); pick(options[activeIdx].value); close(); trigger.focus(); }
+    else if (e.key === 'Escape') { close(); trigger.focus(); }
+  });
+
+  return {
+    get value() { return value; },
+    set value(v) { value = v; label.textContent = labelFor(v); },
+    setOptions(items) {
+      options = items;
+      if (!options.some((o) => o.value === value)) value = options[0] ? options[0].value : '';
+      label.textContent = labelFor(value);
+      if (!menu.hidden) buildMenu();
+    },
+    onChange(fn) { changeFn = fn; },
+  };
+}
+
+const $branchFilter = createDropdown('branch-dd');
+$branchFilter.setOptions([{ value: '', label: 'All branches' }]);
 
 // --- confirm modal (replaces window.confirm) ------------------------------
 
@@ -351,8 +448,10 @@ async function refresh() {
 
 function populateBranches(branches) {
   const cur = $branchFilter.value;
-  $branchFilter.replaceChildren(new Option('All branches', ''));
-  for (const b of branches) $branchFilter.appendChild(new Option(b, b));
+  $branchFilter.setOptions([
+    { value: '', label: 'All branches' },
+    ...branches.map((b) => ({ value: b, label: b })),
+  ]);
   $branchFilter.value = cur;
 }
 
@@ -407,15 +506,378 @@ for (const chip of $chips) {
     refresh();
   });
 }
-$branchFilter.addEventListener('change', refresh);
+$branchFilter.onChange(refresh);
 $hideOrphans.addEventListener('change', refresh);
+
+// --- monitor view ---------------------------------------------------------
+
+const fmt = {
+  tokens(n) {
+    if (n < 1000) return String(n);
+    if (n < 1e6) return (n / 1e3).toFixed(1) + 'K';
+    if (n < 1e9) return (n / 1e6).toFixed(1) + 'M';
+    return (n / 1e9).toFixed(1) + 'B';
+  },
+  cost(n) { return '$' + n.toFixed(2); },
+  int(n) { return n.toLocaleString(); },
+  duration(ms) {
+    if (!ms || ms < 0) return '—';
+    const s = Math.floor(ms / 1000);
+    if (s < 60) return s + 's';
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + 'm';
+    const h = Math.floor(m / 60), rem = m % 60;
+    return rem ? `${h}h ${rem}m` : `${h}h`;
+  },
+};
+
+const ACTIVITY_LABELS = {
+  idle: 'idle', waiting: 'waiting', thinking: 'thinking', reading: 'reading',
+  writing: 'writing', running: 'running', searching: 'searching',
+  browsing: 'browsing', spawning: 'spawning',
+};
+
+const Monitor = (() => {
+  let es = null;            // EventSource
+  let latest = [];          // last sessions array
+  let selectedId = null;    // pinned session id
+  let chart = null;         // uPlot instance
+  let started = false;
+  let firstLoaded = false;  // true once the first SSE snapshot has rendered
+
+  const $sidebar = document.getElementById('mon-session-list');
+  const $sysstats = document.getElementById('mon-sysstats-grid');
+  const $title = document.getElementById('mon-title');
+  const $subtitle = document.getElementById('mon-subtitle');
+  const $stats = document.getElementById('mon-stats');
+  const $chartBox = document.getElementById('mon-chart');
+  const $activity = document.getElementById('mon-activity');
+  const $files = document.getElementById('mon-files');
+  const $filesTitle = document.getElementById('mon-files-title');
+  const $livePill = document.getElementById('live-pill');
+  const $liveText = document.getElementById('live-text');
+
+  function setLive(state) {
+    $livePill.className = 'live-pill ' + state; // connected | connecting | offline
+    $liveText.textContent = state;
+  }
+
+  function start() {
+    if (started) return;
+    started = true;
+    renderLoading(); // first snapshot can take a few seconds — show skeletons
+    connect();
+  }
+
+  function connect() {
+    setLive('connecting');
+    es = new EventSource(`/api/stream?token=${encodeURIComponent(TOKEN)}`);
+    es.addEventListener('snapshot', (e) => {
+      setLive('connected');
+      try {
+        const data = JSON.parse(e.data);
+        latest = data.sessions || [];
+        firstLoaded = true;
+        renderSidebar(latest);
+        renderSysStats(data.systemStats);
+        if (!selectedId && latest.length) selectedId = latest[0].id;
+        renderDetail(currentSession());
+      } catch { /* ignore malformed frame */ }
+    });
+    es.addEventListener('error', () => {
+      setLive('offline');
+      // EventSource auto-reconnects; reflect connecting state on retry.
+      setTimeout(() => { if (es && es.readyState === 0) setLive('connecting'); }, 500);
+    });
+  }
+
+  // Skeleton placeholders shown until the first SSE snapshot arrives.
+  function renderLoading() {
+    if (firstLoaded) return;
+    $sidebar.replaceChildren(...Array.from({ length: 6 }, () => {
+      const card = el('div', 'mon-card skeleton-card');
+      card.appendChild(el('div', 'sk sk-line sk-w60'));
+      card.appendChild(el('div', 'sk sk-line sk-w40'));
+      card.appendChild(el('div', 'sk sk-line sk-w80'));
+      return card;
+    }));
+    $sysstats.replaceChildren(...Array.from({ length: 7 }, () => {
+      const row = el('div', 'sk sk-line');
+      return row;
+    }));
+    $title.textContent = 'Loading sessions…';
+    $subtitle.textContent = '';
+    $stats.replaceChildren(...Array.from({ length: 6 }, () => {
+      const card = el('div', 'stat skeleton-card');
+      card.appendChild(el('div', 'sk sk-line sk-w50'));
+      card.appendChild(el('div', 'sk sk-line sk-w70 sk-tall'));
+      return card;
+    }));
+    $chartBox.replaceChildren(el('div', 'sk sk-block'));
+    $activity.replaceChildren(...Array.from({ length: 3 }, () => {
+      const row = el('div', 'mon-act-row');
+      row.appendChild(el('div', 'sk sk-line sk-w30'));
+      row.appendChild(el('div', 'sk sk-line sk-w90'));
+      return row;
+    }));
+    $files.replaceChildren(...Array.from({ length: 4 }, () => el('div', 'sk sk-line sk-file')));
+    $filesTitle.textContent = 'Modified Files';
+  }
+
+  function currentSession() {
+    return latest.find((s) => s.id === selectedId) || latest[0] || null;
+  }
+
+  function activityBadge(s) {
+    const span = el('span', 'mon-badge ' + (s.active ? 'active' : 'done'));
+    span.textContent = s.active ? (ACTIVITY_LABELS[s.activity] || s.activity) : 'Complete';
+    return span;
+  }
+
+  function renderSidebar(sessions) {
+    $sidebar.replaceChildren();
+    for (const s of sessions.slice(0, 60)) {
+      const card = el('div', 'mon-card' + (s.id === selectedId ? ' selected' : '') + (s.active ? ' is-active' : ''));
+      card.dataset.id = s.id;
+
+      const top = el('div', 'mon-card-top');
+      top.appendChild(el('span', 'mon-card-name', shortName(s)));
+      top.appendChild(activityBadge(s));
+      card.appendChild(top);
+
+      const mid = el('div', 'mon-card-mid');
+      mid.appendChild(el('span', 'mon-card-model', (s.model || '—').replace(/^claude-/, '')));
+      mid.appendChild(el('span', 'mon-card-when', timeAgo(s.mtime)));
+      card.appendChild(mid);
+
+      const bot = el('div', 'mon-card-bot');
+      bot.appendChild(el('span', null, `${fmt.int(s.messages)} msgs`));
+      bot.appendChild(el('span', 'mon-card-tokens', `${fmt.int(s.totalTokens)} tokens`));
+      card.appendChild(bot);
+
+      card.addEventListener('click', () => {
+        selectedId = s.id;
+        renderSidebar(latest);
+        renderDetail(currentSession());
+      });
+      $sidebar.appendChild(card);
+    }
+  }
+
+  function shortName(s) {
+    if (s.cwd) return s.cwd.replace(/[\\/]+$/, '').replace(/^.*[\\/]/, '') || s.projectLabel;
+    return s.projectLabel;
+  }
+
+  function statCard(label, value, sub, iconName) {
+    const card = el('div', 'stat');
+    const head = el('div', 'stat-head');
+    head.appendChild(el('span', 'stat-label', label));
+    head.appendChild(icon(iconName, 'stat-icon'));
+    card.appendChild(head);
+    card.appendChild(el('div', 'stat-value', value));
+    if (sub) card.appendChild(el('div', 'stat-sub', sub));
+    return card;
+  }
+
+  function renderDetail(s) {
+    if (!s) {
+      $title.textContent = 'No sessions';
+      $subtitle.textContent = '';
+      $stats.replaceChildren();
+      $activity.replaceChildren();
+      $files.replaceChildren();
+      return;
+    }
+    $title.textContent = shortName(s);
+    $subtitle.textContent = (s.cwd || s.projectLabel) + (s.branch ? `  ·  ${s.branch}` : '');
+
+    const io = `${fmt.tokens(s.tokens.input)}/${fmt.tokens(s.tokens.output)}`;
+    const cacheTok = s.tokens.cacheCreation + s.tokens.cacheRead;
+    $stats.replaceChildren(
+      statCard('Total Tokens', fmt.tokens(s.totalTokens), `${fmt.int(s.messages)} messages`, 'zap'),
+      statCard('Session Cost', fmt.cost(s.costUSD), (s.model || '').replace(/^claude-/, ''), 'coins'),
+      statCard('Cache Tokens', fmt.tokens(cacheTok), `${(s.cacheHitRate * 100).toFixed(1)}% cache hit`, 'database'),
+      statCard('Input/Output', io, 'In/Out ratio', 'activity'),
+      statCard('Files Modified', String(s.modifiedFiles.length), 'Changed files', 'file'),
+      statCard('Session Time', fmt.duration(s.durationMs), s.active ? 'Currently active' : 'Ended', 'clock'),
+    );
+
+    renderChart(s);
+    renderActivity(s);
+    renderFiles(s);
+  }
+
+  function renderActivity(s) {
+    $activity.replaceChildren();
+    const msgs = (s.recentMessages || []).slice().reverse();
+    if (!msgs.length) { $activity.appendChild(el('div', 'empty', 'No recent messages.')); return; }
+    for (const m of msgs) {
+      const row = el('div', 'mon-act-row');
+      const head = el('div', 'mon-act-head');
+      head.appendChild(el('span', 'mon-act-role ' + m.role, m.role === 'user' ? 'You' : 'Assistant'));
+      if (m.ts) head.appendChild(el('span', 'mon-act-when', timeAgo(m.ts)));
+      row.appendChild(head);
+      row.appendChild(el('div', 'mon-act-text', m.text));
+      $activity.appendChild(row);
+    }
+  }
+
+  function renderFiles(s) {
+    $filesTitle.textContent = `Modified Files (${s.modifiedFiles.length})`;
+    $files.replaceChildren();
+    if (!s.modifiedFiles.length) { $files.appendChild(el('div', 'empty', 'No files modified.')); return; }
+    for (const f of s.modifiedFiles.slice(-30).reverse()) {
+      $files.appendChild(el('div', 'mon-file', f));
+    }
+  }
+
+  // Bucket entry timestamps into a per-session token-usage-over-time bar chart.
+  // We don't have per-entry token deltas in the snapshot, so the chart shows
+  // message volume per time bucket (a faithful "activity" proxy that matches
+  // the mockup's bar shape). Full per-bucket tokens can come from /api/session.
+  function renderChart(s) {
+    if (typeof uPlot === 'undefined') {
+      $chartBox.textContent = 'chart unavailable (uPlot not loaded)';
+      return;
+    }
+    // We only have recentMessages timestamps in the stream snapshot; bucket them.
+    const ts = (s.recentMessages || []).map((m) => m.ts).filter(Boolean).sort((a, b) => a - b);
+    if (ts.length < 2) {
+      $chartBox.replaceChildren(el('div', 'empty', 'Not enough data to chart yet.'));
+      if (chart) { chart.destroy(); chart = null; }
+      return;
+    }
+    const buckets = 24;
+    const min = ts[0], max = ts[ts.length - 1];
+    const span = Math.max(1, max - min);
+    const xs = [], ys = new Array(buckets).fill(0);
+    for (let i = 0; i < buckets; i++) xs.push(min + (span * i) / buckets);
+    for (const t of ts) {
+      let idx = Math.floor(((t - min) / span) * buckets);
+      if (idx >= buckets) idx = buckets - 1;
+      ys[idx] += 1;
+    }
+    drawBars(xs.map((x) => x / 1000), ys);
+  }
+
+  function drawBars(xSec, ys) {
+    const w = $chartBox.clientWidth || 800;
+    const css = getComputedStyle(document.documentElement);
+    const accent = (css.getPropertyValue('--accent') || '#d97757').trim();
+    const dim = (css.getPropertyValue('--text-dim') || '#9a9286').trim();
+    const grid = hexToRgba((css.getPropertyValue('--border') || '#3a342b').trim(), 0.6);
+    const opts = {
+      width: w, height: 240,
+      cursor: { show: true },
+      scales: { x: { time: true } },
+      axes: [
+        { stroke: dim, grid: { stroke: grid } },
+        { stroke: dim, grid: { stroke: grid } },
+      ],
+      series: [
+        {},
+        {
+          label: 'messages',
+          stroke: accent,
+          fill: hexToRgba(accent, 0.35),
+          paths: uPlot.paths.bars({ size: [0.7, 40] }),
+          points: { show: false },
+        },
+      ],
+    };
+    if (chart) chart.destroy();
+    $chartBox.replaceChildren(); // clear any skeleton/placeholder before drawing
+    chart = new uPlot(opts, [xSec, ys], $chartBox);
+  }
+
+  function hexToRgba(hex, a) {
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex.trim());
+    if (!m) return hex;
+    return `rgba(${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)},${a})`;
+  }
+
+  function renderSysStats(st) {
+    if (!st) return;
+    const rows = [
+      ['Active Sessions', String(st.activeSessions)],
+      ['Total Sessions', String(st.totalSessions)],
+      ['Total Messages', fmt.int(st.totalMessages)],
+      ['Tokens Used', fmt.tokens(st.tokensUsed)],
+      ['Total Cost', fmt.cost(st.totalCost)],
+      ['Avg Duration', fmt.duration(st.avgDurationMs)],
+      ['Top Model', (st.topModel || '—').replace(/^claude-/, '')],
+    ];
+    $sysstats.replaceChildren();
+    for (const [k, v] of rows) {
+      $sysstats.appendChild(el('dt', null, k));
+      $sysstats.appendChild(el('dd', null, v));
+    }
+  }
+
+  function onResize() { const s = currentSession(); if (s && started) renderChart(s); }
+  window.addEventListener('resize', onResize);
+
+  // Re-render the chart so it picks up new CSS colors (e.g. after a theme switch).
+  function redraw() { const s = currentSession(); if (s && started) renderChart(s); }
+
+  return { start, redraw };
+})();
+
+// --- keep --topbar-h in sync (header wraps to 2 rows when narrow) ---------
+
+const $topbar = document.querySelector('.topbar');
+function syncTopbarHeight() {
+  const h = Math.round($topbar.getBoundingClientRect().height);
+  document.documentElement.style.setProperty('--topbar-h', h + 'px');
+}
+if (window.ResizeObserver) {
+  new ResizeObserver(syncTopbarHeight).observe($topbar);
+} else {
+  window.addEventListener('resize', syncTopbarHeight);
+}
+syncTopbarHeight();
+
+// --- theme toggle ---------------------------------------------------------
+
+const $themeToggle = document.getElementById('theme-toggle');
+$themeToggle.addEventListener('click', () => {
+  const root = document.documentElement;
+  const light = root.getAttribute('data-theme') === 'light';
+  if (light) root.removeAttribute('data-theme');
+  else root.setAttribute('data-theme', 'light');
+  try { localStorage.setItem('csm-theme', light ? 'dark' : 'light'); } catch (e) {}
+  // The chart paints to a canvas, so CSS vars don't restyle it — redraw it.
+  Monitor.redraw();
+});
+
+// --- tab switching --------------------------------------------------------
+
+const $tabs = [...document.querySelectorAll('.tab')];
+const $views = {
+  sessions: document.getElementById('view-sessions'),
+  monitor: document.getElementById('view-monitor'),
+};
+
+function switchTab(name) {
+  for (const t of $tabs) t.setAttribute('aria-selected', String(t.dataset.tab === name));
+  for (const [k, v] of Object.entries($views)) v.hidden = k !== name;
+  if (name === 'monitor') Monitor.start();
+}
+
+for (const t of $tabs) t.addEventListener('click', () => switchTab(t.dataset.tab));
 
 // --- boot -----------------------------------------------------------------
 
 refresh();
 // Light auto-refresh so new conversations show up without a manual reload.
+// Only the Sessions view polls; the Monitor view is driven by its SSE stream.
 setInterval(() => {
-  if (document.visibilityState === 'visible' && document.activeElement !== $search) {
+  if (
+    document.visibilityState === 'visible' &&
+    document.activeElement !== $search &&
+    !$views.sessions.hidden
+  ) {
     refresh();
   }
 }, 15000);

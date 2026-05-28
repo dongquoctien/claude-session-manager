@@ -14,11 +14,18 @@ you pick in a new terminal, in the right directory, already resuming.
 CLI, web UI, and a desktop app — favorites, filters, last-prompt preview,
 cross-platform launching, and delete-to-trash with restore. See [PLAN.md](./PLAN.md).
 
-![Claude Session Manager web UI](./docs/screenshot-web-ui.png)
+It also includes a **live monitor** for token usage, estimated cost, cache
+hit-rate, and per-session activity (thinking / writing / running / …) across
+every conversation — in the terminal (`csm monitor`) and in the web UI's
+**Monitor** tab, which streams updates over Server-Sent Events.
 
-Conversations are grouped by folder; the search box matches across **title,
-folder name, and branch**, so you can type a path like `oh-api` to jump
-straight to every conversation under that folder.
+### Web UI — Monitor tab
+
+![Monitor web UI](./assets/monitor-web.png)
+
+### Terminal — `csm monitor`
+
+![csm monitor](./assets/monitor-cli.png)
 
 ## Download
 
@@ -77,6 +84,31 @@ new terminal. Tick **fork** to resume as a new forked session.
 (anti DNS-rebind), and `POST /api/open` only accepts a sessionId already
 present in the scan — it never takes an arbitrary path or command.
 
+## Monitor (tokens, cost & activity)
+
+`csm monitor` (terminal) and the web UI's **Monitor** tab give a live view of
+how every conversation is spending tokens:
+
+- **Tokens** — cumulative input / output / cache-write / cache-read.
+- **Cost** — *estimated* from token counts × per-model list prices. Claude
+  Code's newer transcripts no longer record a cost field, so this is a
+  computed estimate, not a billed amount.
+- **Cache hit-rate** — `cache_read / (cache_read + input)`. High is good
+  (cached context is ~10× cheaper than fresh input); a low rate is flagged.
+- **Activity** — derived from the latest transcript entry: `thinking`,
+  `writing`, `reading`, `running`, `searching`, `browsing`, `spawning`,
+  `waiting`, or `idle`. A session is **active** if it was touched in the last
+  60 s.
+
+Metrics are parsed incrementally (mtime + byte-offset cache), so re-scanning
+hundreds of conversations on a tight loop only reads the bytes appended since
+last time. The web Monitor pushes updates over **Server-Sent Events** as the
+`.jsonl` files change; the CLI redraws in an alternate screen buffer (like
+`htop`) and only repaints when something actually changed.
+
+> The monitor is read-only observability — it reports usage, it does not cap
+> or limit it, and the cost figure is an estimate.
+
 ## Desktop app (Electron)
 
 The same UI, in its own window — no browser or terminal needed:
@@ -105,6 +137,8 @@ csm list --fav           # only pinned conversations
 csm list --recent 3      # only those touched in the last 3 days
 csm list --branch main   # only on a given git branch
 csm search dashboard     # same as `list <query>`
+csm monitor              # live dashboard: tokens, cost, cache, activity (Ctrl+C quits)
+csm monitor --active     # only sessions active right now
 csm open <id|prefix>     # open a terminal and resume that conversation
 csm fav <id|prefix>      # pin / unpin a conversation
 csm rm <id|prefix>       # move to trash (preview; add --yes to confirm)
@@ -121,7 +155,10 @@ Useful flags:
 
 | Flag | Applies to | Meaning |
 |------|-----------|---------|
-| `--json` | list/search | machine-readable output |
+| `--json` | list/search/monitor | machine-readable output |
+| `--active` | monitor | only show currently-active sessions |
+| `--once` | monitor | print one frame and exit (no live loop) |
+| `--interval <ms>` | monitor | refresh interval, min 250 (default 2000) |
 | `--limit <n>` | list/search | cap number of rows |
 | `--fav` | list | only favorites |
 | `--recent [days]` | list | only the last N days (default 7) |
@@ -148,8 +185,10 @@ never becomes a title.
 ## How it finds & opens conversations
 
 - Scans every `*.jsonl` under `~/.claude/projects` (honors `CLAUDE_CONFIG_DIR`).
-- Reads only the head of each file (streaming, capped) so even 50 MB+
-  conversations don't slow it down — full scan of ~270 files runs in ~250 ms.
+- The picker reads only the head of each file (streaming, capped) so even
+  50 MB+ conversations don't slow it down — full scan of ~270 files runs in
+  ~250 ms. The monitor additionally streams whole files to total tokens/cost,
+  but caches by mtime + byte offset so repeats stay fast.
 - Reads the real `cwd` and `gitBranch` recorded inside each conversation, so it
   opens the exact folder/worktree (it does **not** guess from the folder name).
 - Conversations whose folder no longer exists are flagged as `(missing)`.
