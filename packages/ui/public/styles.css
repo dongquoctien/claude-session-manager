@@ -8,11 +8,36 @@
   --text-dim: #9a9286;
   --accent: #d97757;
   --accent-dim: #b85f43;
+  --on-accent: #fff;        /* text/icon on top of an accent fill */
   --magenta: #c08adb;
   --warn: #e0a458;
   --err: #e06a5a;
   --ok: #7fc8a0;
   --radius: 10px;
+  /* Translucent backdrop for the sticky top/filter bars. */
+  --bar-bg: rgba(26, 24, 21, 0.92);
+  /* Live topbar height — JS keeps this in sync so sticky bars below it line up
+     even when the header wraps to two rows on narrow viewports. */
+  --topbar-h: 57px;
+}
+
+/* Light theme: warm paper tones, same accent. Toggled via data-theme on <html>. */
+:root[data-theme="light"] {
+  --bg: #f7f3ec;
+  --bg-elev: #fffdf8;
+  --bg-row: #f1ebe0;
+  --bg-row-hover: #e9e1d3;
+  --border: #ddd3c4;
+  --text: #2b2620;
+  --text-dim: #7a7164;
+  --accent: #c25d3c;
+  --accent-dim: #d97757;
+  --on-accent: #fff;
+  --magenta: #9a5fc0;
+  --warn: #b97f2e;
+  --err: #c84f3f;
+  --ok: #3f9d6e;
+  --bar-bg: rgba(247, 243, 236, 0.92);
 }
 
 * { box-sizing: border-box; }
@@ -38,9 +63,10 @@ html, body {
   z-index: 10;
   display: flex;
   align-items: center;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 10px 14px;
   padding: 12px 18px;
-  background: rgba(26, 24, 21, 0.92);
+  background: var(--bar-bg);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
 }
@@ -64,7 +90,7 @@ html, body {
 
 .search-wrap {
   position: relative;
-  flex: 1;
+  flex: 1 1 280px;
   max-width: 640px;
 }
 .search-wrap input {
@@ -99,17 +125,69 @@ html, body {
   font-size: 11px;
 }
 
-.actions { display: flex; align-items: center; gap: 12px; }
+.actions { display: flex; align-items: center; gap: 10px; margin-left: auto; flex: none; }
+
+/* Narrow viewports: let the search take its own row and the controls wrap
+   under it, so nothing gets crushed into the same line. */
+@media (max-width: 860px) {
+  .search-wrap { order: 3; flex-basis: 100%; max-width: none; }
+  .actions { margin-left: 0; }
+  /* The live pill collapses to just its dot to save width. */
+  .live-pill #live-text { display: none; }
+  .live-pill { padding: 6px; }
+}
 .toggle {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   color: var(--text-dim);
   font-size: 13px;
   cursor: pointer;
   user-select: none;
 }
-#refresh {
+
+/* --- custom checkbox (replaces the browser default everywhere) --- */
+.toggle input[type="checkbox"],
+.chip-check input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border: 1.5px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-elev);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.12s, border-color 0.12s;
+}
+.toggle input[type="checkbox"]:hover,
+.chip-check input[type="checkbox"]:hover { border-color: var(--accent-dim); }
+.toggle input[type="checkbox"]:checked,
+.chip-check input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+/* The check mark, drawn with a rotated border (no image/font needed). */
+.toggle input[type="checkbox"]:checked::after,
+.chip-check input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--on-accent);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.toggle input[type="checkbox"]:focus-visible,
+.chip-check input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent-dim);
+  outline-offset: 1px;
+}
+#refresh, #theme-toggle {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -121,20 +199,26 @@ html, body {
   border-radius: 8px;
   cursor: pointer;
 }
-#refresh:hover { background: var(--bg-row-hover); color: var(--text); }
+#refresh:hover, #theme-toggle:hover { background: var(--bg-row-hover); color: var(--text); }
+
+/* Show the icon that represents the theme you'd switch TO. */
+#theme-toggle .icon-sun { display: none; }
+#theme-toggle .icon-moon { display: inline-block; }
+:root[data-theme="light"] #theme-toggle .icon-sun { display: inline-block; }
+:root[data-theme="light"] #theme-toggle .icon-moon { display: none; }
 #refresh:active .icon { transform: rotate(180deg); transition: transform 0.3s; }
 
 /* --- filter bar --- */
 .filterbar {
   position: sticky;
-  top: 61px;
+  top: var(--topbar-h);
   z-index: 9;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 10px 18px;
-  background: rgba(26, 24, 21, 0.92);
+  background: var(--bar-bg);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
 }
@@ -155,22 +239,70 @@ html, body {
 .chip[aria-pressed="true"] {
   background: var(--accent-dim);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 .chip .icon { width: 14px; height: 14px; }
-.chip-select, .chip-check { cursor: default; }
-.chip-select select {
-  background: transparent;
-  border: none;
-  color: inherit;
-  font: inherit;
-  font-size: 13px;
-  outline: none;
-  cursor: pointer;
-  max-width: 200px;
-}
-.chip-select select option { background: var(--bg-elev); color: var(--text); }
+.chip-check { cursor: default; }
 .chip-check input { cursor: pointer; }
+
+/* --- custom dropdown (themed replacement for native <select>) --- */
+.dropdown { position: relative; }
+.dropdown-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.dropdown-trigger[aria-expanded="true"] { border-color: var(--accent); color: var(--text); }
+.dropdown-label {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dropdown-caret { width: 13px; height: 13px; opacity: 0.7; transition: transform 0.15s; }
+.dropdown-trigger[aria-expanded="true"] .dropdown-caret { transform: rotate(180deg); }
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  min-width: 200px;
+  max-width: 320px;
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 5px;
+  list-style: none;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.dropdown-menu[hidden] { display: none; }
+.dropdown-menu::-webkit-scrollbar { width: 8px; }
+.dropdown-menu::-webkit-scrollbar-thumb {
+  background: var(--border); border-radius: 999px; border: 2px solid transparent; background-clip: content-box;
+}
+.dropdown-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dropdown-option .dropdown-check { width: 14px; height: 14px; flex: none; color: var(--accent); visibility: hidden; }
+.dropdown-option.selected .dropdown-check { visibility: visible; }
+.dropdown-option.selected { color: var(--accent); }
+.dropdown-option.active { background: var(--bg-row-hover); }
 
 /* --- list --- */
 .list { padding: 14px 18px 80px; max-width: 980px; margin: 0 auto; }
@@ -186,7 +318,7 @@ html, body {
      own scope: when a group scrolls past, the next header simply takes over —
      it does not overlap rows of OTHER groups. z-index keeps it above rows. */
   position: sticky;
-  top: 112px;
+  top: calc(var(--topbar-h) + 51px);
 	z-index: 5;
 	background: var(--bg);
 	margin: 0 -18px 8px;
@@ -335,6 +467,12 @@ html, body {
 .row-del:hover { color: var(--err); opacity: 1; }
 
 /* --- multi-select --- */
+/* Checkboxes exist in the DOM always (so selection state survives re-render)
+   but are hidden until the user turns on Select mode (#list.select-mode). */
+.row-check, .group-check { display: none; }
+.list.select-mode .row-check,
+.list.select-mode .group-check { display: inline-block; }
+
 .row-check {
   flex: none;
   width: 16px;
@@ -342,12 +480,10 @@ html, body {
   margin: 0;
   cursor: pointer;
   accent-color: var(--accent);
-  /* Dim until the row is hovered or selected, like the star, so it stays
-     unobtrusive but discoverable. */
-  opacity: 0.3;
+  opacity: 0.5;
   transition: opacity 0.12s;
 }
-.row:hover .row-check { opacity: 0.75; }
+.row:hover .row-check { opacity: 0.85; }
 .row-check:checked,
 .row.selected .row-check { opacity: 1; }
 .row.selected {
@@ -363,18 +499,26 @@ html, body {
   accent-color: var(--accent);
 }
 
+/* Active Select toggle reuses the pressed-chip look. */
+#select-toggle[aria-pressed="true"] {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .selection-bar {
   position: sticky;
-  top: 104px; /* just under topbar (61) + filterbar */
+  top: calc(var(--topbar-h) + 44px); /* under the topbar + tab/filter bar */
   z-index: 8;
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 10px 18px;
   max-width: 980px;
-  margin: 0 auto;
+  margin: 8px auto 0;
+  border-radius: var(--radius);
   background: var(--accent-dim);
-  border-bottom: 1px solid var(--accent);
+  border: 1px solid var(--accent);
   color: #fff;
 }
 .selection-bar[hidden] { display: none; }
@@ -429,7 +573,7 @@ html, body {
   font-weight: 600;
   cursor: pointer;
 }
-.toast-action:hover { background: var(--accent); color: #fff; }
+.toast-action:hover { background: var(--accent); color: var(--on-accent); }
 
 /* --- confirm modal --- */
 .modal-overlay {
@@ -496,5 +640,194 @@ html, body {
 .btn .icon { width: 15px; height: 15px; }
 .btn-ghost { background: transparent; border-color: var(--border); color: var(--text); }
 .btn-ghost:hover { background: var(--bg-row-hover); }
-.btn-danger { background: var(--err); border-color: var(--err); color: #fff; }
+.btn-danger { background: var(--err); border-color: var(--err); color: var(--on-accent); }
 .btn-danger:hover { filter: brightness(1.08); }
+
+/* ===================== monitor view ===================== */
+
+/* Thin, theme-matched scrollbars (default browser bars look harsh on dark). */
+.mon-session-list,
+.mon-activity,
+.mon-files {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.mon-session-list::-webkit-scrollbar,
+.mon-activity::-webkit-scrollbar,
+.mon-files::-webkit-scrollbar { width: 8px; }
+.mon-session-list::-webkit-scrollbar-track,
+.mon-activity::-webkit-scrollbar-track,
+.mon-files::-webkit-scrollbar-track { background: transparent; }
+.mon-session-list::-webkit-scrollbar-thumb,
+.mon-activity::-webkit-scrollbar-thumb,
+.mon-files::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.mon-session-list:hover::-webkit-scrollbar-thumb,
+.mon-activity:hover::-webkit-scrollbar-thumb,
+.mon-files:hover::-webkit-scrollbar-thumb { background: var(--text-dim); background-clip: content-box; }
+
+/* Live connection pill in the topbar */
+.live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.live-pill .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); }
+.live-pill.connected { color: var(--accent); border-color: var(--accent-dim); }
+.live-pill.connected .live-dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.live-pill.connecting { color: var(--warn); }
+.live-pill.connecting .live-dot { background: var(--warn); animation: blink 1s infinite; }
+.live-pill.offline .live-dot { background: var(--err); }
+@keyframes blink { 50% { opacity: 0.3; } }
+
+/* Tab nav */
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  position: sticky;
+  top: var(--topbar-h);
+  z-index: 9;
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  padding: 10px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+.tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.tab:hover { color: var(--text); }
+.tab .icon { width: 15px; height: 15px; }
+
+.view[hidden] { display: none; }
+
+/* Monitor layout: sidebar + main. The sidebar sticks under the tab bar and
+   owns its own scroll, so the page has one clear scroll context per column
+   instead of a tiny nested scroller fighting the page scroll. */
+.monitor { display: flex; gap: 16px; padding: 16px 18px; align-items: flex-start; }
+.mon-sidebar {
+  width: 280px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: sticky;
+  top: calc(var(--topbar-h) + 41px); /* + tab bar */
+  max-height: calc(100vh - var(--topbar-h) - 57px);
+}
+.mon-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+
+/* Session cards in the sidebar — flexes to fill remaining sidebar height. */
+.mon-session-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; flex: 1; padding-right: 2px; }
+.mon-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.mon-card:hover { background: var(--bg-row-hover); }
+.mon-card.selected { border-color: var(--accent); border-left-color: var(--accent); }
+.mon-card.is-active { border-left-color: var(--accent); }
+.mon-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mon-card-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mon-card-mid { display: flex; justify-content: space-between; gap: 8px; color: var(--text-dim); font-size: 12px; margin-top: 3px; }
+.mon-card-model { color: var(--text-dim); }
+.mon-card-bot { display: flex; justify-content: space-between; gap: 8px; color: var(--text-dim); font-size: 12px; margin-top: 6px; }
+.mon-card-tokens { color: var(--accent); }
+
+.mon-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+.mon-badge.active { background: rgba(217,119,87,0.18); color: var(--accent); }
+.mon-badge.done { background: var(--bg-row); color: var(--text-dim); }
+
+/* System stats block — fixed at the bottom of the sticky sidebar. */
+.mon-sysstats { flex: none; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
+.mon-sysstats h3 { margin: 0 0 8px; font-size: 13px; display: flex; align-items: center; gap: 6px; color: var(--text); }
+.mon-sysstats h3 .icon { width: 15px; height: 15px; color: var(--accent); }
+.mon-sysstats dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; font-size: 12px; }
+.mon-sysstats dt { color: var(--text-dim); }
+.mon-sysstats dd { margin: 0; text-align: right; font-weight: 600; }
+
+/* Header of the detail pane */
+.mon-head h2 { margin: 0; font-size: 18px; }
+.mon-subtitle { color: var(--text-dim); font-size: 13px; margin-top: 2px; }
+
+/* Stat cards grid */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.stat { background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+.stat-head { display: flex; align-items: center; justify-content: space-between; color: var(--text-dim); font-size: 12px; }
+.stat-head .stat-icon { width: 15px; height: 15px; color: var(--accent); }
+.stat-value { font-size: 24px; font-weight: 700; margin-top: 6px; }
+.stat-sub { color: var(--text-dim); font-size: 12px; margin-top: 4px; }
+
+/* Panels (chart, activity, files) */
+.panel { background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+.panel-head { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 10px; }
+.panel-head .icon { color: var(--accent); }
+.chart { width: 100%; min-height: 240px; }
+
+.mon-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 1100px) { .mon-cols { grid-template-columns: 1fr; } }
+
+.mon-activity { display: flex; flex-direction: column; gap: 10px; max-height: 320px; overflow-y: auto; padding-right: 4px; }
+.mon-act-row { border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+.mon-act-head { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 2px; }
+.mon-act-role { font-weight: 600; }
+.mon-act-role.user { color: var(--accent); }
+.mon-act-role.assistant { color: var(--magenta); }
+.mon-act-when { color: var(--text-dim); }
+.mon-act-text { color: var(--text-dim); font-size: 13px; word-break: break-word; }
+
+.mon-files { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; padding-right: 4px; }
+.mon-file { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--text-dim); background: var(--bg-row); border-radius: 6px; padding: 6px 8px; word-break: break-all; }
+
+.empty { color: var(--text-dim); padding: 12px; text-align: center; }
+
+/* --- loading skeletons (shown until the first SSE snapshot arrives) --- */
+.sk {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-row);
+  border-radius: 6px;
+}
+.sk::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--bg-row-hover), transparent);
+  animation: sk-shimmer 1.3s infinite;
+}
+@keyframes sk-shimmer { 100% { transform: translateX(100%); } }
+
+.sk-line { height: 12px; margin: 6px 0; }
+.sk-tall { height: 22px; }
+.sk-block { height: 240px; border-radius: 8px; margin: 0; }
+.sk-file { height: 30px; }
+.sk-w30 { width: 30%; }
+.sk-w40 { width: 40%; }
+.sk-w50 { width: 50%; }
+.sk-w60 { width: 60%; }
+.sk-w70 { width: 70%; }
+.sk-w80 { width: 80%; }
+.sk-w90 { width: 90%; }
+.skeleton-card { cursor: default; pointer-events: none; }

@@ -9,6 +9,14 @@
   <link rel="stylesheet" href="/styles.css" />
   <!-- Token is injected by the agent at serve time; the page never asks for it. -->
   <script>window.CSM_TOKEN = "%%CSM_TOKEN%%";</script>
+  <!-- Apply the saved theme before first paint to avoid a flash of dark. -->
+  <script>
+    try {
+      var t = localStorage.getItem('csm-theme');
+      if (!t) t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    } catch (e) {}
+  </script>
 </head>
 <body>
   <!--
@@ -61,6 +69,48 @@
         <line x1="10" x2="10" y1="11" y2="17"/>
         <line x1="14" x2="14" y1="11" y2="17"/>
       </g>
+      <g id="i-zap" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>
+      </g>
+      <g id="i-coins" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="8" cy="8" r="6"/>
+        <path d="M18.09 10.37A6 6 0 1 1 10.34 18"/>
+        <path d="M7 6h1v4"/>
+        <path d="m16.71 13.88.7.71-2.82 2.82"/>
+      </g>
+      <g id="i-database" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <ellipse cx="12" cy="5" rx="9" ry="3"/>
+        <path d="M3 5V19A9 3 0 0 0 21 19V5"/>
+        <path d="M3 12A9 3 0 0 0 21 12"/>
+      </g>
+      <g id="i-activity" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+      </g>
+      <g id="i-file" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/>
+        <path d="M14 2v4a2 2 0 0 0 2 2h4"/>
+      </g>
+      <g id="i-clock" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <polyline points="12 6 12 12 16 14"/>
+      </g>
+      <g id="i-gauge" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m12 14 4-4"/>
+        <path d="M3.34 19a10 10 0 1 1 17.32 0"/>
+      </g>
+      <g id="i-sun" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="4"/>
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
+      </g>
+      <g id="i-moon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+      </g>
+      <g id="i-chevron-down" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m6 9 6 6 6-6"/>
+      </g>
+      <g id="i-check" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 6 9 17l-5-5"/>
+      </g>
     </defs>
   </svg>
 
@@ -75,44 +125,117 @@
       <kbd>/</kbd>
     </div>
     <div class="actions">
+      <span id="live-pill" class="live-pill" title="Realtime connection status">
+        <span class="live-dot"></span><span id="live-text">offline</span>
+      </span>
       <label class="toggle" title="Skip permission prompts (claude --dangerously-skip-permissions)">
         <input id="skipperms" type="checkbox" checked /> skip&nbsp;perms
       </label>
       <label class="toggle" title="Resume as a new forked session (keeps original intact)">
         <input id="fork" type="checkbox" /> fork
       </label>
+      <button id="theme-toggle" title="Toggle light / dark theme" aria-label="Toggle theme">
+        <svg class="icon icon-sun" viewBox="0 0 24 24"><use href="#i-sun"/></svg>
+        <svg class="icon icon-moon" viewBox="0 0 24 24"><use href="#i-moon"/></svg>
+      </button>
       <button id="refresh" title="Rescan" aria-label="Rescan">
         <svg class="icon" viewBox="0 0 24 24"><use href="#i-refresh"/></svg>
       </button>
     </div>
   </header>
 
-  <div class="filterbar">
-    <button class="chip" data-filter="all" aria-pressed="true">All</button>
-    <button class="chip" data-filter="fav">
-      <svg class="icon" viewBox="0 0 24 24"><use href="#i-star"/></svg> Favorites
+  <nav class="tabs" role="tablist">
+    <button class="tab" data-tab="sessions" role="tab" aria-selected="true">Sessions</button>
+    <button class="tab" data-tab="monitor" role="tab" aria-selected="false">
+      <svg class="icon" viewBox="0 0 24 24"><use href="#i-activity"/></svg> Monitor
     </button>
-    <button class="chip" data-filter="recent">Last 7 days</button>
-    <label class="chip chip-select">
-      <svg class="icon" viewBox="0 0 24 24"><use href="#i-git-branch"/></svg>
-      <select id="branch-filter"><option value="">All branches</option></select>
-    </label>
-    <label class="chip chip-check">
-      <input id="hide-orphans" type="checkbox" /> Hide&nbsp;missing
-    </label>
-  </div>
+  </nav>
 
-  <!-- Selection action bar — hidden until at least one row is checked. -->
-  <div id="selection-bar" class="selection-bar" hidden>
-    <span id="selection-count" class="selection-count" aria-live="polite">0 selected</span>
-    <button id="selection-clear" class="btn btn-ghost">Clear</button>
-    <button id="selection-delete" class="btn btn-danger">
-      <svg class="icon" viewBox="0 0 24 24"><use href="#i-trash"/></svg>
-      Delete selected
-    </button>
-  </div>
+  <section id="view-sessions" class="view">
+    <div class="filterbar">
+      <button class="chip" data-filter="all" aria-pressed="true">All</button>
+      <button class="chip" data-filter="fav">
+        <svg class="icon" viewBox="0 0 24 24"><use href="#i-star"/></svg> Favorites
+      </button>
+      <button class="chip" data-filter="recent">Last 7 days</button>
+      <div id="branch-dd" class="dropdown">
+        <button type="button" class="chip dropdown-trigger" id="branch-dd-trigger"
+                aria-haspopup="listbox" aria-expanded="false">
+          <svg class="icon" viewBox="0 0 24 24"><use href="#i-git-branch"/></svg>
+          <span class="dropdown-label" id="branch-dd-label">All branches</span>
+          <svg class="icon dropdown-caret" viewBox="0 0 24 24"><use href="#i-chevron-down"/></svg>
+        </button>
+        <ul class="dropdown-menu" id="branch-dd-menu" role="listbox" hidden></ul>
+      </div>
+      <label class="chip chip-check">
+        <input id="hide-orphans" type="checkbox" /> Hide&nbsp;missing
+      </label>
+      <!-- Toggles multi-select mode: checkboxes only appear once this is on. -->
+      <button type="button" class="chip" id="select-toggle" aria-pressed="false">
+        <svg class="icon" viewBox="0 0 24 24"><use href="#i-trash"/></svg> Select
+      </button>
+    </div>
 
-  <main id="list" class="list" aria-live="polite"></main>
+    <!-- Selection action bar — shown only in select mode with ≥1 row checked. -->
+    <div id="selection-bar" class="selection-bar" hidden>
+      <span id="selection-count" class="selection-count" aria-live="polite">0 selected</span>
+      <button id="selection-clear" class="btn btn-ghost">Clear</button>
+      <button id="selection-delete" class="btn btn-danger">
+        <svg class="icon" viewBox="0 0 24 24"><use href="#i-trash"/></svg>
+        Delete selected
+      </button>
+    </div>
+
+    <main id="list" class="list" aria-live="polite"></main>
+  </section>
+
+  <section id="view-monitor" class="view" hidden>
+    <div class="monitor">
+      <aside class="mon-sidebar">
+        <div id="mon-session-list" class="mon-session-list" aria-live="polite"></div>
+        <div class="mon-sysstats">
+          <h3><svg class="icon" viewBox="0 0 24 24"><use href="#i-gauge"/></svg> System Stats</h3>
+          <dl id="mon-sysstats-grid"></dl>
+        </div>
+      </aside>
+
+      <div class="mon-main">
+        <div class="mon-head">
+          <div>
+            <h2 id="mon-title">Select a session</h2>
+            <div id="mon-subtitle" class="mon-subtitle"></div>
+          </div>
+        </div>
+
+        <div id="mon-stats" class="stat-grid"></div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <svg class="icon" viewBox="0 0 24 24"><use href="#i-zap"/></svg>
+            <span>Token Usage</span>
+          </div>
+          <div id="mon-chart" class="chart"></div>
+        </div>
+
+        <div class="mon-cols">
+          <div class="panel">
+            <div class="panel-head">
+              <svg class="icon" viewBox="0 0 24 24"><use href="#i-activity"/></svg>
+              <span>Recent Activity</span>
+            </div>
+            <div id="mon-activity" class="mon-activity"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <svg class="icon" viewBox="0 0 24 24"><use href="#i-file"/></svg>
+              <span id="mon-files-title">Modified Files</span>
+            </div>
+            <div id="mon-files" class="mon-files"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <div id="toast" class="toast" role="status"></div>
 
@@ -138,6 +261,10 @@
     </div>
   </div>
 
+  <!-- uPlot: tiny (~40KB) canvas charting, no framework. Loaded from CDN; the
+       desktop .exe bundles a local copy under /vendor/ (see app.js fallback). -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js"></script>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

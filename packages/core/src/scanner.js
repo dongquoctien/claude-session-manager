@@ -5,6 +5,7 @@ import { projectsDir, slugToLabel } from './paths.js';
 import { parseHead } from './parser.js';
 import { resolveTitle } from './title.js';
 import { favoriteSet } from './state.js';
+import { MetricsCache, resolveActivity, isActive } from './metrics.js';
 
 /**
  * @typedef {Object} Session
@@ -140,18 +141,179 @@ export async function scanSessions(opts = {}) {
 }
 
 /**
+ * @typedef {import('./scanner.js').Session & {
+ *   activity: string,
+ *   active: boolean,
+ *   status: string,
+ *   model: string|null,
+ *   tokens: { input:number, output:number, cacheCreation:number, cacheRead:number },
+ *   totalTokens: number,
+ *   costUSD: number,
+ *   cacheHitRate: number,
+ *   messages: number,
+ *   durationMs: number,
+ *   modifiedFiles: string[],
+ *   recentMessages: {role:string,text:string,ts:number}[],
+ * }} MonitorSession
+ */
+
+/** A module-level cache so repeated scans (the realtime loop) stay incremental. */
+const sharedMetricsCache = new MetricsCache();
+
+/**
+ * Like {@link scanSessions} but enriches every session with realtime metrics
+ * (tokens, estimated cost, cache hit-rate, activity/status, modified files).
+ * Uses an incremental byte-offset cache, so calling it on a tight loop only
+ * re-reads the bytes appended since the previous call.
+ *
+ * @param {Object} [opts]
+ * @param {string} [opts.dir]          override projects dir (testing)
+ * @param {number} [opts.concurrency]
+ * @param {MetricsCache} [opts.cache]  override the shared metrics cache (testing)
+ * @param {number} [opts.now]          epoch ms used to resolve activity (testing)
+ * @returns {Promise<{ sessions: MonitorSession[], systemStats: SystemStats }>}
+ */
+export async function scanMetrics(opts = {}) {
+  const base = await scanSessions({ dir: opts.dir, concurrency: opts.concurrency });
+  const cache = opts.cache || sharedMetricsCache;
+  const now = opts.now || Date.now();
+
+  const seen = new Set();
+  const sessions = await mapLimit(base, opts.concurrency || DEFAULT_CONCURRENCY, async (s) => {
+    seen.add(s.file);
+    const m = await cache.get(s.file);
+    const totalTokens = m.tokens.input + m.tokens.output + m.tokens.cacheCreation + m.tokens.cacheRead;
+    const cacheDenom = m.tokens.cacheRead + m.tokens.input;
+    return {
+      ...s,
+      activity: resolveActivity(m, now),
+      active: isActive(m, now),
+      status: m.status,
+      model: m.model,
+      tokens: m.tokens,
+      totalTokens,
+      costUSD: m.costUSD,
+      cacheHitRate: cacheDenom > 0 ? m.tokens.cacheRead / cacheDenom : 0,
+      messages: m.totalMessages,
+      durationMs: m.firstActivityMs && m.lastActivityMs ? m.lastActivityMs - m.firstActivityMs : 0,
+      modifiedFiles: m.modifiedFiles,
+      recentMessages: m.recentMessages,
+    };
+  });
+
+  cache.prune(seen);
+
+  // Active sessions float to the top (most recent first); the rest follow by mtime.
+  sessions.sort((a, b) => {
+    if (a.active !== b.active) return a.active ? -1 : 1;
+    return b.mtime - a.mtime;
+  });
+
+  return { sessions, systemStats: computeSystemStats(sessions) };
+}
+
+/**
+ * @typedef {Object} SystemStats
+ * @property {number} activeSessions
+ * @property {number} totalSessions
+ * @property {number} totalMessages
+ * @property {number} tokensUsed
+ * @property {number} totalCost
+ * @property {number} avgDurationMs
+ * @property {string|null} topModel
+ */
+
+/** @param {MonitorSession[]} sessions @returns {SystemStats} */
+function computeSystemStats(sessions) {
+  let totalMessages = 0;
+  let tokensUsed = 0;
+  let totalCost = 0;
+  let durationSum = 0;
+  let durationCount = 0;
+  let activeSessions = 0;
+  const modelCounts = new Map();
+
+  for (const s of sessions) {
+    totalMessages += s.messages;
+    tokensUsed += s.totalTokens;
+    totalCost += s.costUSD;
+    if (s.durationMs > 0) { durationSum += s.durationMs; durationCount += 1; }
+    if (s.active) activeSessions += 1;
+    if (s.model) modelCounts.set(s.model, (modelCounts.get(s.model) || 0) + 1);
+  }
+
+  let topModel = null;
+  let topCount = -1;
+  for (const [model, count] of modelCounts) {
+    if (count > topCount) { topModel = model; topCount = count; }
+  }
+
+  return {
+    activeSessions,
+    totalSessions: sessions.length,
+    totalMessages,
+    tokensUsed,
+    totalCost,
+    avgDurationMs: durationCount > 0 ? durationSum / durationCount : 0,
+    topModel,
+  };
+}
+
+/**
+ * Of several recordings of the SAME conversation UUID (the worktree case —
+ * Claude Code leaves the session file under both the main repo's slug and the
+ * worktree's slug), pick the one most worth resuming: a live folder beats a
+ * `(missing)` one, then the bigger file (the real transcript beats a tiny
+ * worktree stub), then the most recently touched.
+ * @param {Session[]} dupes
+ * @returns {Session}
+ */
+function preferReal(dupes) {
+  return [...dupes].sort((a, b) => {
+    if (a.cwdExists !== b.cwdExists) return a.cwdExists ? -1 : 1;
+    if (a.size !== b.size) return b.size - a.size;
+    return b.mtime - a.mtime;
+  })[0];
+}
+
+/**
  * Find one session by exact id, or by unambiguous id prefix.
+ *
+ * The same UUID can legitimately appear under two project slugs (a session
+ * started in a git worktree, then continued in the main repo). So `id` is NOT
+ * a unique key. When a query lands on several recordings of the *same* UUID we
+ * auto-prefer the live/real one (see {@link preferReal}); we only report
+ * `ambiguous` when the matches are genuinely *different* conversations. Pass
+ * `opts.slug` (exact or substring) to pin a specific copy.
+ *
  * @param {Session[]} sessions
  * @param {string} idOrPrefix
+ * @param {Object} [opts]
+ * @param {string} [opts.slug]  restrict to sessions whose projectSlug matches
+ *                              (exact, else case-insensitive substring)
  * @returns {{ match: Session|null, ambiguous: Session[] }}
  */
-export function findSession(sessions, idOrPrefix) {
-  const exact = sessions.find((s) => s.id === idOrPrefix);
-  if (exact) return { match: exact, ambiguous: [] };
-  const pref = sessions.filter((s) => s.id.startsWith(idOrPrefix));
-  if (pref.length === 1) return { match: pref[0], ambiguous: [] };
-  if (pref.length > 1) return { match: null, ambiguous: pref };
-  return { match: null, ambiguous: [] };
+export function findSession(sessions, idOrPrefix, opts = {}) {
+  let pool = sessions;
+  if (opts.slug) {
+    const exactSlug = pool.filter((s) => s.projectSlug === opts.slug);
+    const slugQ = opts.slug.toLowerCase();
+    pool = exactSlug.length
+      ? exactSlug
+      : pool.filter((s) => s.projectSlug.toLowerCase().includes(slugQ));
+  }
+
+  // Exact-id matches first; then fall back to prefix matches.
+  let hits = pool.filter((s) => s.id === idOrPrefix);
+  if (hits.length === 0) hits = pool.filter((s) => s.id.startsWith(idOrPrefix));
+
+  if (hits.length === 0) return { match: null, ambiguous: [] };
+  if (hits.length === 1) return { match: hits[0], ambiguous: [] };
+
+  // Multiple hits: only truly ambiguous if they're different conversations.
+  const distinctIds = new Set(hits.map((s) => s.id));
+  if (distinctIds.size === 1) return { match: preferReal(hits), ambiguous: [] };
+  return { match: null, ambiguous: hits };
 }
 
 /**

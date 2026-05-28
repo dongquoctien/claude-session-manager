@@ -31,6 +31,57 @@ test('findSession: no match', () => {
   assert.equal(r.ambiguous.length, 0);
 });
 
+// --- duplicate-UUID (worktree) handling -----------------------------------
+// Claude Code leaves the same session UUID under both the worktree slug and
+// the main-repo slug. id alone is not a unique key, so findSession must auto-
+// prefer the live/real copy and only flag genuinely distinct ids as ambiguous.
+const UUID = 'aa90bdc5-fcae-4e65-a50f-1756a9fdec62';
+const dupes = [
+  // worktree stub: 119 bytes, folder gone
+  { id: UUID, title: 'Untitled', projectSlug: 'D--Code-oh-admin--worktrees-ELS-1423', projectLabel: '—', branch: null, mtime: now - 6 * 86400000, size: 119, cwdExists: false, favorite: false },
+  // real transcript: 53MB, folder live
+  { id: UUID, title: 'Implement exclusive dashboard', projectSlug: 'D--Code-oh-admin', projectLabel: 'D:\\Code\\oh-admin', branch: 'staging', mtime: now - 17 * 3600000, size: 53653119, cwdExists: true, favorite: false },
+];
+
+test('findSession: same UUID in two slugs auto-prefers the live/larger copy', () => {
+  const r = findSession(dupes, UUID);
+  assert.equal(r.ambiguous.length, 0, 'should not be ambiguous — same conversation');
+  assert.equal(r.match.projectSlug, 'D--Code-oh-admin');
+  assert.equal(r.match.cwdExists, true);
+});
+
+test('findSession: full-UUID open never silently lands on the dead stub', () => {
+  // even if scan order puts the stub first, preferReal wins
+  const r = findSession([...dupes].reverse(), UUID);
+  assert.equal(r.match.size, 53653119);
+});
+
+test('findSession: prefix that hits one duplicated UUID still resolves', () => {
+  const r = findSession(dupes, 'aa90bdc5');
+  assert.equal(r.match.projectSlug, 'D--Code-oh-admin');
+  assert.equal(r.ambiguous.length, 0);
+});
+
+test('findSession: slug pins a specific copy of a duplicated UUID', () => {
+  const r = findSession(dupes, UUID, { slug: 'worktrees-ELS-1423' });
+  assert.equal(r.match.projectSlug, 'D--Code-oh-admin--worktrees-ELS-1423');
+  assert.equal(r.match.size, 119);
+});
+
+test('findSession: genuinely different ids sharing a prefix stay ambiguous', () => {
+  const r = findSession(sessions, 'aaaa');
+  assert.equal(r.match, null);
+  assert.equal(r.ambiguous.length, 2);
+});
+
+test('findSession: tie-break by mtime when cwdExists and size are equal', () => {
+  const tie = [
+    { id: UUID, projectSlug: 'a', mtime: now - 1000, size: 500, cwdExists: true },
+    { id: UUID, projectSlug: 'b', mtime: now, size: 500, cwdExists: true },
+  ];
+  assert.equal(findSession(tie, UUID).match.projectSlug, 'b');
+});
+
 test('searchSessions: matches title', () => {
   const r = searchSessions(sessions, 'dashboard');
   assert.equal(r.length, 1);
