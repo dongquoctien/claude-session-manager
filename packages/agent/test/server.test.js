@@ -180,3 +180,95 @@ test('delete requires the token', async () => {
   const r = await req('/api/delete', { method: 'POST', body: JSON.stringify({ id: 'x' }) });
   assert.equal(r.status, 401);
 });
+
+// --- bulk delete / restore -------------------------------------------------
+
+test('delete-bulk moves several conversations and restore-bulk brings them back', async () => {
+  const ids = [
+    'b0000001-0000-0000-0000-000000000001',
+    'b0000002-0000-0000-0000-000000000002',
+    'b0000003-0000-0000-0000-000000000003',
+  ];
+  for (const id of ids) {
+    writeConv('D--proj-bulk', id, [
+      { type: 'user', message: { content: 'bulk ' + id }, cwd: os.tmpdir(), gitBranch: 'main' },
+    ]);
+  }
+  const files = ids.map((id) => path.join(fakeProjects, 'D--proj-bulk', `${id}.jsonl`));
+  assert.ok(files.every((f) => fs.existsSync(f)));
+
+  const del = await req('/api/delete-bulk', {
+    method: 'POST', token: TOKEN,
+    body: JSON.stringify({ items: ids.map((id) => ({ id })) }),
+  });
+  assert.equal(del.status, 200);
+  const delData = await del.json();
+  assert.equal(delData.deleted, 3);
+  assert.equal(delData.failed, 0);
+  assert.ok(files.every((f) => !fs.existsSync(f)), 'all files moved out');
+
+  const res = await req('/api/restore-bulk', {
+    method: 'POST', token: TOKEN, body: JSON.stringify({ ids }),
+  });
+  assert.equal(res.status, 200);
+  const resData = await res.json();
+  assert.equal(resData.restored, 3);
+  assert.ok(files.every((f) => fs.existsSync(f)), 'all files restored');
+});
+
+test('delete-bulk is resilient: one unknown id fails, the rest still delete', async () => {
+  const good = 'b0000010-0000-0000-0000-000000000010';
+  writeConv('D--proj-bulk2', good, [
+    { type: 'user', message: { content: 'good one' }, cwd: os.tmpdir(), gitBranch: 'main' },
+  ]);
+  const goodFile = path.join(fakeProjects, 'D--proj-bulk2', `${good}.jsonl`);
+
+  const r = await req('/api/delete-bulk', {
+    method: 'POST', token: TOKEN,
+    body: JSON.stringify({ items: [{ id: good }, { id: 'unknown-id-not-present-0000' }] }),
+  });
+  assert.equal(r.status, 200);
+  const data = await r.json();
+  assert.equal(data.deleted, 1);
+  assert.equal(data.failed, 1);
+  assert.ok(!fs.existsSync(goodFile), 'the valid one is still deleted');
+  const failed = data.results.find((x) => x.ok === false);
+  assert.equal(failed.error, 'unknown id');
+});
+
+test('delete-bulk slug pins the right copy when a UUID exists in two slugs', async () => {
+  const dupId = 'b0000020-0000-0000-0000-000000000020';
+  writeConv('D--proj-real', dupId, [
+    { type: 'user', message: { content: 'real copy' }, cwd: os.tmpdir(), gitBranch: 'main' },
+  ]);
+  writeConv('D--proj-stub', dupId, [
+    { type: 'user', message: { content: 'stub copy' }, cwd: os.tmpdir(), gitBranch: 'main' },
+  ]);
+  const realFile = path.join(fakeProjects, 'D--proj-real', `${dupId}.jsonl`);
+  const stubFile = path.join(fakeProjects, 'D--proj-stub', `${dupId}.jsonl`);
+
+  // delete ONLY the stub copy via its slug
+  const r = await req('/api/delete-bulk', {
+    method: 'POST', token: TOKEN,
+    body: JSON.stringify({ items: [{ id: dupId, slug: 'D--proj-stub' }] }),
+  });
+  assert.equal(r.status, 200);
+  const data = await r.json();
+  assert.equal(data.deleted, 1);
+  assert.ok(!fs.existsSync(stubFile), 'stub copy deleted');
+  assert.ok(fs.existsSync(realFile), 'real copy untouched');
+});
+
+test('delete-bulk rejects a non-array payload (400)', async () => {
+  const r = await req('/api/delete-bulk', {
+    method: 'POST', token: TOKEN, body: JSON.stringify({ items: 'nope' }),
+  });
+  assert.equal(r.status, 400);
+});
+
+test('delete-bulk requires the token (401)', async () => {
+  const r = await req('/api/delete-bulk', {
+    method: 'POST', body: JSON.stringify({ items: [] }),
+  });
+  assert.equal(r.status, 401);
+});

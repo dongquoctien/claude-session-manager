@@ -20,6 +20,7 @@ import { publicDir } from '@csm/ui/dir';
 
 const HOST = '127.0.0.1';
 const DEFAULT_PORT = 4777;
+const MAX_BULK = 500; // cap bulk delete/restore payload size
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -144,6 +145,56 @@ export function createServer(opts = {}) {
         const r = await deleteSession(match);
         cache = null; // list changed
         return send(res, 200, { ok: true, id: match.id, title: match.title, hadDir: r.hadDir });
+      }
+
+      if (req.method === 'POST' && url.pathname === '/api/delete-bulk') {
+        const body = await readJson(req);
+        const items = body && Array.isArray(body.items) ? body.items : null;
+        if (!items) return send(res, 400, { error: 'items must be an array' });
+        if (items.length > MAX_BULK) return send(res, 400, { error: `too many items (max ${MAX_BULK})` });
+        // Scan once; resolve each item against it (never an arbitrary path).
+        const sessions = await getSessions();
+        const results = [];
+        for (const it of items) {
+          const id = it && typeof it.id === 'string' ? it.id : null;
+          const slug = it && typeof it.slug === 'string' ? it.slug : undefined;
+          if (!id) { results.push({ id: null, ok: false, error: 'missing id' }); continue; }
+          // slug pins the right copy when the same UUID lives under two slugs
+          // (worktree duplicates); fall back to plain id resolution otherwise.
+          const match = slug
+            ? sessions.find((s) => s.id === id && s.projectSlug === slug)
+            : findSession(sessions, id).match;
+          if (!match) { results.push({ id, ok: false, error: 'unknown id' }); continue; }
+          try {
+            const r = await deleteSession(match);
+            results.push({ id: match.id, ok: true, hadDir: r.hadDir });
+          } catch (err) {
+            results.push({ id, ok: false, error: String(err && err.message ? err.message : err) });
+          }
+        }
+        cache = null; // list changed
+        const deleted = results.filter((r) => r.ok).length;
+        return send(res, 200, { ok: true, results, deleted, failed: results.length - deleted });
+      }
+
+      if (req.method === 'POST' && url.pathname === '/api/restore-bulk') {
+        const body = await readJson(req);
+        const ids = body && Array.isArray(body.ids) ? body.ids : null;
+        if (!ids) return send(res, 400, { error: 'ids must be an array' });
+        if (ids.length > MAX_BULK) return send(res, 400, { error: `too many items (max ${MAX_BULK})` });
+        const results = [];
+        for (const id of ids) {
+          if (typeof id !== 'string') { results.push({ id: null, ok: false, error: 'invalid id' }); continue; }
+          try {
+            const r = await restoreSession(id);
+            results.push({ id: r.id, ok: true });
+          } catch (err) {
+            results.push({ id, ok: false, error: String(err && err.message ? err.message : err) });
+          }
+        }
+        cache = null;
+        const restored = results.filter((r) => r.ok).length;
+        return send(res, 200, { ok: true, results, restored, failed: results.length - restored });
       }
 
       if (req.method === 'POST' && url.pathname === '/api/restore') {
