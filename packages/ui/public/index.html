@@ -170,10 +170,13 @@
       <label class="chip chip-check">
         <input id="hide-orphans" type="checkbox" /> Hide&nbsp;missing
       </label>
-      <!-- Toggles multi-select mode: checkboxes only appear once this is on. -->
-      <button type="button" class="chip" id="select-toggle" aria-pressed="false">
-        <svg class="icon" viewBox="0 0 24 24"><use href="#i-trash"/></svg> Select
-      </button>
+      <!-- Switch: turns on multi-select mode so row checkboxes appear for
+           bulk delete. Off by default. -->
+      <label class="switch" title="Show checkboxes to select and delete multiple conversations">
+        <input id="select-toggle" type="checkbox" />
+        <span class="switch-track"><span class="switch-knob"></span></span>
+        <span class="switch-label">Multi-select</span>
+      </label>
     </div>
 
     <!-- Selection action bar — shown only in select mode with ≥1 row checked. -->

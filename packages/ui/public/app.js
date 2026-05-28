@@ -669,13 +669,13 @@ $hideOrphans.addEventListener('change', refresh);
 /** Enter/leave multi-select mode. Leaving clears any current selection. */
 function setSelectMode(on) {
   selectMode = on;
-  $selToggle.setAttribute('aria-pressed', String(on));
+  if ($selToggle.checked !== on) $selToggle.checked = on;
   $list.classList.toggle('select-mode', on);
   if (!on) clearSelection();
   updateSelectionBar();
 }
 
-$selToggle.addEventListener('click', () => setSelectMode(!selectMode));
+$selToggle.addEventListener('change', () => setSelectMode($selToggle.checked));
 $selClear.addEventListener('click', clearSelection);
 $selDelete.addEventListener('click', doDeleteBulk);
 
