@@ -853,6 +853,10 @@ html, body {
 .mon-model-chart .donut { width: 100%; height: 100%; transform: rotate(-90deg); }
 .mon-model-legend { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
 .mon-model-legend .empty { color: var(--text-dim); padding: 0; }
+/* Empty state: no donut to show, so center the placeholder text. */
+.mon-models-body:has(.empty) { justify-content: center; }
+.mon-models-body:has(.empty) .mon-model-chart { display: none; }
+.mon-model-legend:has(.empty) { flex: none; text-align: center; }
 .mon-model-row { display: flex; align-items: center; gap: 6px; }
 .mon-model-dot { flex: none; width: 9px; height: 9px; border-radius: 2px; }
 .mon-model-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); font-family: ui-monospace, Consolas, monospace; }
