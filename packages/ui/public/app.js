@@ -1195,6 +1195,7 @@ const Office = (() => {
   const $floor = document.getElementById('office-floor');
   const $count = document.getElementById('office-count');
   const $empty = document.getElementById('office-empty');
+  let $tv = null; // the lounge TV feed (created in buildFloor)
   const agents = new Map(); // session id -> { node, room, x, y, queue, slot, ... }
   let started = false;
   let built = false;
@@ -1360,15 +1361,22 @@ const Office = (() => {
     const lz = ZONES.get('lounge');
     const lounge = el('div', 'lounge');
     lounge.style.cssText = `left:${lz.x}px;top:${lz.y}px;width:${lz.w}px;height:${lz.h}px`;
+    // Wall-mounted TV at the top of the lounge showing live Recent Activity.
+    const tv = el('div', 'lounge-tv');
+    tv.style.cssText = `left:${lz.w / 2 - 130}px;top:8px;width:260px`;
+    tv.innerHTML = '<div class="tv-bezel"><div class="tv-head">▌ Recent Activity</div>'
+      + '<div id="office-tv" class="tv-feed"></div></div><div class="tv-stand"></div>';
+    lounge.appendChild(tv);
     // Lounge props: meeting table (upper), sofa (lower), plants + vending (corners).
     const addProp = (svg, x, y) => { svg.style.cssText = `left:${x}px;top:${y}px`; lounge.appendChild(svg); };
-    addProp(loungeProp('table'), lz.w / 2 - 60, lz.h * 0.18);
-    addProp(loungeProp('sofa'), lz.w / 2 - 55, lz.h * 0.62);
+    addProp(loungeProp('table'), lz.w / 2 - 60, lz.h * 0.34);
+    addProp(loungeProp('sofa'), lz.w / 2 - 55, lz.h * 0.7);
     addProp(loungeProp('plant'), 14, lz.h - 46);
     addProp(loungeProp('plant'), lz.w - 42, lz.h - 46);
     addProp(loungeProp('vending'), lz.w - 50, 12);
     addProp(loungeProp('water'), 14, 12);
     $floor.appendChild(lounge);
+    $tv = lounge.querySelector('#office-tv');
 
     // Six edge rooms with a door on the lounge-facing edge.
     for (const def of ROOM_DEFS) {
@@ -1745,6 +1753,28 @@ const Office = (() => {
     $count.textContent = `${n} agent${n === 1 ? '' : 's'}`;
     $empty.hidden = n > 0;
     if (started) applyBubbles();
+    updateTV(visible);
+  }
+
+  /** Feed the lounge TV with the most recent activity across all agents. */
+  function updateTV(sessions) {
+    if (!$tv) return;
+    const rows = [];
+    for (const s of sessions) {
+      const msgs = s.recentMessages || [];
+      const last = msgs[msgs.length - 1];
+      if (!last || !last.text) continue;
+      rows.push({ ts: last.ts || s.mtime || 0, who: shortName(s), text: last.text });
+    }
+    rows.sort((a, b) => b.ts - a.ts);
+    $tv.replaceChildren(...rows.slice(0, 8).map((r) => {
+      const line = el('div', 'tv-line');
+      line.appendChild(el('span', 'tv-who', clipName(r.who, 10)));
+      const t = r.text.length > 46 ? r.text.slice(0, 46) + '…' : r.text;
+      line.appendChild(el('span', 'tv-text', t));
+      return line;
+    }));
+    if (!rows.length) $tv.replaceChildren(el('div', 'tv-line tv-empty', 'No activity yet.'));
   }
 
   // One bubble per room at a time (rotating) so bubbles never overlap.
