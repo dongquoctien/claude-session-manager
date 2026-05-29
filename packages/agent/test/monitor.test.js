@@ -68,6 +68,38 @@ test('/api/monitor returns sessions enriched with metrics + systemStats', async 
   assert.ok(data.systemStats.totalSessions >= 1);
 });
 
+test('/api/monitor systemStats.byModel groups token/cost per model, desc by tokens', async () => {
+  // Seed a sonnet conversation alongside the opus one from before().
+  const t = new Date().toISOString();
+  writeConv('D--proj-bymodel', 'cccc1111-2222-3333-4444-555566667777', [
+    { type: 'user', timestamp: t, cwd: os.tmpdir(), gitBranch: 'main', message: { content: 'hi' } },
+    { type: 'assistant', timestamp: t, message: { role: 'assistant', model: 'claude-sonnet-4-6',
+      content: [{ type: 'text', text: 'a' }],
+      usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } },
+    { type: 'ai-title', aiTitle: 'Sonnet conv' },
+  ]);
+  const data = await (await fetch(url('/api/monitor'))).json();
+  const byModel = data.systemStats.byModel;
+  assert.ok(Array.isArray(byModel), 'byModel is an array');
+  // Shape
+  for (const m of byModel) {
+    assert.equal(typeof m.model, 'string');
+    assert.equal(typeof m.tokens, 'number');
+    assert.equal(typeof m.costUSD, 'number');
+  }
+  // Both models present
+  const opus = byModel.find((m) => m.model === 'claude-opus-4-7');
+  const sonnet = byModel.find((m) => m.model === 'claude-sonnet-4-6');
+  assert.ok(opus && sonnet, 'both seeded models present');
+  assert.equal(sonnet.tokens, 15);            // 10 + 5
+  assert.ok(opus.tokens >= 1050);             // at least the opus conv from before()
+  // Sorted desc by tokens (opus has way more)
+  assert.equal(byModel[0].model, 'claude-opus-4-7');
+  // byModel token sum == systemStats.tokensUsed
+  const sum = byModel.reduce((n, m) => n + m.tokens, 0);
+  assert.equal(sum, data.systemStats.tokensUsed);
+});
+
 test('/api/monitor requires a token', async () => {
   const r = await fetch(`${baseUrl}/api/monitor`);
   assert.equal(r.status, 401);
