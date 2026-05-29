@@ -1158,8 +1158,11 @@ html, body {
    #office-classic / .oc-* so it never clashes with Pro's floorplan rules.
    The avatar + bubble visuals are shared (.agent/.bubble), but Classic lays
    agents out in normal flow, so .oc-agent resets Pro's absolute positioning. */
+/* Office head controls: Chatter toggle pushed to the right, the view picker
+   (segmented control) just after it. */
+.office-chatter { margin-left: auto; }
+.office-mode-seg { margin-left: 16px; }
 /* Office view picker: a segmented control (two equal options, not on/off). */
-.office-mode-seg { margin-left: auto; }
 .seg {
   display: inline-flex;
   padding: 2px;

@@ -17,3 +17,4 @@ export {
 export { launch, buildLaunch, findWindowsTerminal } from './launcher.js';
 export { readState, writeState, toggleFavorite, favoriteSet, statePath } from './state.js';
 export { deleteSession, restoreSession, listTrash, emptyTrash, trashDir } from './trash.js';
+export { generateChatter, parseChatter, resolveClaudeBin, CHATTER_LANGS } from './chatter.js';
