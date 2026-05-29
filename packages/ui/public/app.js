@@ -822,6 +822,7 @@ const Monitor = (() => {
         renderModelBreakdown(data.systemStats && data.systemStats.byModel);
         if (!selectedId && latest.length) selectedId = (visibleSessions()[0] || latest[0]).id;
         renderDetail(currentSession());
+        Office.update(latest); // Office shares this stream (no second EventSource)
       } catch { /* ignore malformed frame */ }
     });
     es.addEventListener('error', () => {
@@ -1183,6 +1184,279 @@ const Monitor = (() => {
   return { start, redraw };
 })();
 
+// --- office view ----------------------------------------------------------
+// A playful "office": each session is an avatar that moves to the room matching
+// its current activity. Shares the Monitor SSE stream (Office.update is called
+// from the snapshot handler) — no second EventSource. Activity → room is a
+// direct map of the core-derived `activity` state; the avatar is plain SVG/CSS
+// (no game engine) and slides between rooms via a CSS transition.
+
+const Office = (() => {
+  const $grid = document.getElementById('office-grid');
+  const $count = document.getElementById('office-count');
+  const $empty = document.getElementById('office-empty');
+  const rooms = new Map(); // activity -> .room element
+  const agents = new Map(); // session id -> { node, room }
+  let started = false;
+
+  for (const room of $grid ? $grid.querySelectorAll('.room') : []) {
+    rooms.set(room.dataset.activity, room);
+  }
+
+  function roomFor(activity) {
+    return rooms.get(activity) || rooms.get('idle');
+  }
+  function shortName(s) {
+    if (s.cwd) return s.cwd.replace(/[\\/]+$/, '').replace(/^.*[\\/]/, '') || s.projectLabel;
+    return s.projectLabel || s.id.slice(0, 8);
+  }
+  function activityColor(activity) {
+    const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim() || '#888';
+    switch (activity) {
+      case 'writing': return css('--accent');
+      case 'reading': case 'searching': case 'browsing': return css('--magenta');
+      case 'running': case 'spawning': return css('--ok');
+      case 'thinking': return css('--warn');
+      default: return css('--text-dim'); // idle / waiting
+    }
+  }
+  function bubbleText(s) {
+    const msgs = s.recentMessages || [];
+    const last = msgs[msgs.length - 1];
+    if (!last || !last.text) return '';
+    const t = last.text.trim();
+    return t.length > 80 ? t.slice(0, 80) + '…' : t;
+  }
+
+  /** Truncate a name for the avatar label; full name lives in the title. */
+  function clipName(name, n = 12) {
+    return name.length > n ? name.slice(0, n - 1) + '…' : name;
+  }
+
+  // --- character avatars (deterministic-random per session id) -------------
+
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  function svgEl(tag, attrs) {
+    const n = document.createElementNS(SVGNS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+  /** Stable 32-bit-ish hash of a string so an agent always looks the same. */
+  function hashId(id) {
+    let h = 2166136261;
+    for (let i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return h >>> 0;
+  }
+  const SKIN = ['#ffdbac', '#f2c9a0', '#e8b088', '#d99a6c', '#c1855a', '#8d5a3c', '#6b4423'];
+  const HAIR = ['#2b2620', '#4a2f1a', '#5a3a22', '#8d5a3c', '#b06a2c', '#c08a4a', '#d4b483', '#9a9286', '#cfcfcf', '#3a3550', '#7a3b5d'];
+  const HAT = ['#d97757', '#7fc8a0', '#c08adb', '#e0a458', '#5b8def', '#e06a5a'];
+  const SHIRT = ['#d97757', '#7fc8a0', '#c08adb', '#e0a458', '#5b8def', '#5fae8c', '#c25d6b', '#6b7280', '#3a3550', '#b0894a'];
+  const INK = '#2b2620'; // facial features
+
+  /**
+   * Build a little character from the id hash so the same agent always looks the
+   * same: skin, gender lean, hairstyle + color, optional hat, shirt color, and
+   * facial details (eyes/brows/mouth that change with `active`). A small collar
+   * badge keeps the activity color so the figure still reads as a status.
+   * @param {object} s session
+   * @param {boolean} active  smiling + open eyes when actively working
+   */
+  function makeAgentSvg(s, active) {
+    const h = hashId(s.id);
+    const bit = (shift) => (h >> shift) & 1;
+    const pick = (arr, shift) => arr[(h >> shift) % arr.length];
+
+    const skin = pick(SKIN, 2);
+    const hair = pick(HAIR, 5);
+    const shirt = pick(SHIRT, 21);
+    const feminine = bit(28) === 1;            // gender lean → longer hair, lashes, blush
+    // Hairstyle pool widens for the feminine lean (long / ponytail).
+    const masc = ['short', 'sidePart', 'buzz', 'curly', 'bald'];
+    const femi = ['long', 'ponytail', 'bob', 'curly', 'sidePart'];
+    const hairStyle = (feminine ? femi : masc)[(h >> 9) % 5];
+    const hasHat = (h >> 13) % 10 < 3 && hairStyle !== 'long' && hairStyle !== 'ponytail';
+    const hat = pick(HAT, 17);
+    const hasGlasses = (h >> 24) % 10 < 3;     // ~30% wear glasses
+
+    const svg = svgEl('svg', { viewBox: '0 0 40 40', class: 'agent-figure' });
+
+    // Long hair behind the shoulders (drawn first so it sits underneath).
+    if (hairStyle === 'long') {
+      svg.appendChild(svgEl('path', { d: 'M8 18c-1 9 0 16 2 22h4c-2-7-2-14-1-21zM32 18c1 9 0 16-2 22h-4c2-7 2-14 1-21z', fill: hair }));
+    } else if (hairStyle === 'ponytail') {
+      svg.appendChild(svgEl('path', { d: 'M30 12c5 1 7 6 6 12-1 4-3 6-5 7l-2-3c2-1 3-3 3-6 0-4-2-7-4-8z', fill: hair }));
+    }
+
+    // Shirt / shoulders.
+    svg.appendChild(svgEl('path', { d: 'M7 40c0-7 6-11 13-11s13 4 13 11z', fill: shirt }));
+    // Collar badge — keeps the activity tint so the figure still shows status.
+    svg.appendChild(svgEl('circle', { cx: 20, cy: 33, r: 2.2, class: 'fig-body' }));
+
+    // Head + ears.
+    svg.appendChild(svgEl('circle', { cx: 11.5, cy: 18, r: 1.8, fill: skin }));
+    svg.appendChild(svgEl('circle', { cx: 28.5, cy: 18, r: 1.8, fill: skin }));
+    svg.appendChild(svgEl('circle', { cx: 20, cy: 17, r: 11, fill: skin }));
+
+    // Hair on top (skip for bald).
+    if (hairStyle !== 'bald' && hairStyle !== 'buzz') {
+      let d;
+      if (hairStyle === 'short') d = 'M9 15a11 11 0 0 1 22 0c0-4-4-8-11-8S9 11 9 15z';
+      else if (hairStyle === 'sidePart') d = 'M9 16c0-7 6-9 11-9s11 2 11 9c-3-3-7-4-11-4-2 3-7 2-11 4z';
+      else if (hairStyle === 'curly') d = 'M8 16a12 5 0 0 1 24 0a4 4 0 0 0-4-5a4 4 0 0 0-8 0a4 4 0 0 0-8 0a4 4 0 0 0-4 5z';
+      else if (hairStyle === 'bob') d = 'M8 20c0-10 5-13 12-13s12 3 12 13c0-6-2-9-4-9-3 0-4 2-8 2s-5-2-8-2c-2 0-4 3-4 9z';
+      else if (hairStyle === 'long') d = 'M9 16a11 11 0 0 1 22 0c0-5-3-9-11-9S9 11 9 16z';
+      else d = 'M9 15a11 11 0 0 1 22 0c0-5-4-8-11-8S9 10 9 15z'; // ponytail front
+      svg.appendChild(svgEl('path', { d, fill: hair }));
+    } else if (hairStyle === 'buzz') {
+      svg.appendChild(svgEl('path', { d: 'M9.5 14a10.5 10.5 0 0 1 21 0a11 11 0 0 0-21 0z', fill: hair, opacity: 0.85 }));
+    }
+
+    // Hat over the hair.
+    if (hasHat) {
+      svg.appendChild(svgEl('path', { d: 'M9 13h22l-2-4a10 10 0 0 0-18 0z', fill: hat }));
+      svg.appendChild(svgEl('rect', { x: 7, y: 12, width: 26, height: 2.4, rx: 1.2, fill: hat }));
+    }
+
+    // Eyebrows.
+    svg.appendChild(svgEl('path', { d: 'M13.5 13.5h4', stroke: INK, 'stroke-width': 1, 'stroke-linecap': 'round', opacity: 0.7 }));
+    svg.appendChild(svgEl('path', { d: 'M22.5 13.5h4', stroke: INK, 'stroke-width': 1, 'stroke-linecap': 'round', opacity: 0.7 }));
+
+    // Eyes.
+    const eyeY = 17;
+    if (active) {
+      svg.appendChild(svgEl('circle', { cx: 16, cy: eyeY, r: 1.7, fill: INK }));
+      svg.appendChild(svgEl('circle', { cx: 24, cy: eyeY, r: 1.7, fill: INK }));
+    } else {
+      svg.appendChild(svgEl('path', { d: `M14 ${eyeY}h4`, stroke: INK, 'stroke-width': 1.6, 'stroke-linecap': 'round' }));
+      svg.appendChild(svgEl('path', { d: `M22 ${eyeY}h4`, stroke: INK, 'stroke-width': 1.6, 'stroke-linecap': 'round' }));
+    }
+    // Eyelashes for the feminine lean.
+    if (feminine) {
+      svg.appendChild(svgEl('path', { d: 'M13.6 16l-1-1M26.4 16l1-1', stroke: INK, 'stroke-width': 0.9, 'stroke-linecap': 'round' }));
+    }
+    // Glasses.
+    if (hasGlasses) {
+      svg.appendChild(svgEl('circle', { cx: 16, cy: eyeY, r: 3, fill: 'none', stroke: INK, 'stroke-width': 1 }));
+      svg.appendChild(svgEl('circle', { cx: 24, cy: eyeY, r: 3, fill: 'none', stroke: INK, 'stroke-width': 1 }));
+      svg.appendChild(svgEl('path', { d: 'M19 17h2', stroke: INK, 'stroke-width': 1 }));
+    }
+
+    // Blush for the feminine lean.
+    if (feminine) {
+      svg.appendChild(svgEl('circle', { cx: 14, cy: 21, r: 1.6, fill: '#e8806f', opacity: 0.35 }));
+      svg.appendChild(svgEl('circle', { cx: 26, cy: 21, r: 1.6, fill: '#e8806f', opacity: 0.35 }));
+    }
+
+    // Mouth: smile when active, flat when idle.
+    svg.appendChild(svgEl('path', {
+      d: active ? 'M16 22q4 4 8 0' : 'M16 23h8',
+      fill: 'none', stroke: INK, 'stroke-width': 1.6, 'stroke-linecap': 'round',
+    }));
+    return svg;
+  }
+
+  /** Build an avatar node: a little character + a name below + a bubble. */
+  function makeAgent(s) {
+    const name = shortName(s);
+    const node = el('div', 'agent');
+    node.dataset.id = s.id;
+    node.title = name; // full name on hover
+    node.appendChild(makeAgentSvg(s, !!s.active));
+    node.appendChild(el('span', 'agent-name', clipName(name)));
+    node.appendChild(el('div', 'bubble'));
+    return node;
+  }
+
+  // The office shows agents that are *working*, not the full history. Keep
+  // sessions that are active or were touched within this window; the rest
+  // (old closed conversations) would just pile up in the Idle room.
+  const RECENT_MS = 30 * 60 * 1000; // 30 minutes
+  function isRecent(s, now) {
+    return s.active || (now - (s.mtime || 0) < RECENT_MS);
+  }
+
+  /** Reconcile avatars with the latest snapshot. */
+  function update(sessions) {
+    if (!$grid) return;
+    const now = Date.now();
+    const visible = sessions.filter((s) => isRecent(s, now));
+    const seen = new Set();
+    for (const s of visible) {
+      seen.add(s.id);
+      let entry = agents.get(s.id);
+      if (!entry) {
+        const node = makeAgent(s);
+        entry = { node, room: null, active: undefined };
+        agents.set(s.id, entry);
+      }
+      const target = roomFor(s.activity);
+      if (target && entry.room !== target) {
+        target.querySelector('.room-floor').appendChild(entry.node);
+        entry.room = target;
+      }
+      // Re-draw the face only when active-ness flips (smile/eyes change).
+      if (entry.active !== !!s.active) {
+        entry.active = !!s.active;
+        entry.node.replaceChild(makeAgentSvg(s, entry.active), entry.node.querySelector('.agent-figure'));
+      }
+      // Tint the figure (shirt/body) by activity; keep the face readable.
+      entry.node.style.setProperty('--agent-tint', activityColor(s.activity));
+      entry.node.classList.toggle('active', !!s.active);
+      // Store the latest bubble text; the rotation loop decides who shows it.
+      entry.text = bubbleText(s);
+      entry.node.querySelector('.bubble').textContent = entry.text;
+    }
+    // Drop avatars whose session vanished from the snapshot.
+    for (const [id, entry] of agents) {
+      if (!seen.has(id)) { entry.node.remove(); agents.delete(id); }
+    }
+    const n = agents.size;
+    $count.textContent = `${n} agent${n === 1 ? '' : 's'}`;
+    $empty.hidden = n > 0;
+    if (started) applyBubbles();
+  }
+
+  // Decide which agents currently show their speech bubble. Active agents
+  // always do; the rest take turns (a sliding window) so bubbles don't all
+  // pile up at once. Called on a timer and after each snapshot.
+  let rotateOffset = 0;
+  // Show at most ONE bubble per room at a time (rotating through that room's
+  // agents) so speech bubbles never overlap, even in a crowded room.
+  function applyBubbles() {
+    const perRoom = new Map(); // room element -> agents that have something to say
+    for (const [, entry] of agents) {
+      entry.node.classList.remove('show-bubble');
+      if (!entry.text || !entry.room) continue;
+      if (!perRoom.has(entry.room)) perRoom.set(entry.room, []);
+      perRoom.get(entry.room).push(entry);
+    }
+    for (const [, list] of perRoom) {
+      // Prefer an active agent in the room; otherwise rotate through the rest.
+      const actives = list.filter((e) => e.active);
+      const pickFrom = actives.length ? actives : list;
+      pickFrom[rotateOffset % pickFrom.length].node.classList.add('show-bubble');
+    }
+  }
+
+  let rotateTimer = null;
+  function start() {
+    if (started) return;
+    started = true;
+    applyBubbles();
+    rotateTimer = setInterval(() => { rotateOffset++; applyBubbles(); }, 3000);
+  }
+  function redraw() {
+    // Theme changed: re-tint and rebuild faces with fresh palette-independent
+    // colors (skin/hair are fixed; only the activity tint uses CSS vars).
+    for (const [, entry] of agents) {
+      const act = entry.room ? entry.room.dataset.activity : 'idle';
+      entry.node.style.setProperty('--agent-tint', activityColor(act));
+    }
+  }
+
+  return { start, update, redraw };
+})();
+
 // --- keep --topbar-h in sync (header wraps to 2 rows when narrow) ---------
 
 const $topbar = document.querySelector('.topbar');
@@ -1208,6 +1482,7 @@ $themeToggle.addEventListener('click', () => {
   try { localStorage.setItem('csm-theme', light ? 'dark' : 'light'); } catch (e) {}
   // The chart paints to a canvas, so CSS vars don't restyle it — redraw it.
   Monitor.redraw();
+  Office.redraw(); // avatars use CSS-var-derived inline colors
 });
 
 // --- tab switching --------------------------------------------------------
@@ -1216,12 +1491,15 @@ const $tabs = [...document.querySelectorAll('.tab')];
 const $views = {
   sessions: document.getElementById('view-sessions'),
   monitor: document.getElementById('view-monitor'),
+  office: document.getElementById('view-office'),
 };
 
 function switchTab(name) {
   for (const t of $tabs) t.setAttribute('aria-selected', String(t.dataset.tab === name));
   for (const [k, v] of Object.entries($views)) v.hidden = k !== name;
-  if (name === 'monitor') Monitor.start();
+  // Office shares the Monitor SSE stream, so opening either starts it.
+  if (name === 'monitor' || name === 'office') Monitor.start();
+  if (name === 'office') Office.start();
 }
 
 for (const t of $tabs) t.addEventListener('click', () => switchTab(t.dataset.tab));

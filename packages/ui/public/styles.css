@@ -926,3 +926,135 @@ html, body {
 .sk-w80 { width: 80%; }
 .sk-w90 { width: 90%; }
 .skeleton-card { cursor: default; pointer-events: none; }
+
+/* --- office view --- */
+.office-head { display: flex; align-items: baseline; gap: 12px; padding: 12px 18px 0; flex-wrap: wrap; }
+.office-count { font-weight: 600; }
+.office-hint { color: var(--text-dim); font-size: 12px; }
+.office {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding: 14px 18px 40px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.room {
+  --room-tint: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  min-height: 170px;          /* grows with content — no internal scroll */
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--room-tint);
+  border-radius: var(--radius);
+  /* No overflow:hidden — speech bubbles must be free to spill past the walls.
+     The rounded top corners are kept via the label's own background clip. */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+/* Each room is tinted by the kind of work it represents (header + accents). */
+.room[data-activity="writing"] { --room-tint: var(--accent); }
+.room[data-activity="reading"],
+.room[data-activity="searching"],
+.room[data-activity="browsing"] { --room-tint: var(--magenta); }
+.room[data-activity="running"],
+.room[data-activity="spawning"] { --room-tint: var(--ok); }
+.room[data-activity="thinking"] { --room-tint: var(--warn); }
+.room-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--room-tint);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 3px) calc(var(--radius) - 3px) 0 0;
+  font-family: ui-monospace, Consolas, monospace;
+  letter-spacing: 0.02em;
+}
+.room-floor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 26px 10px;            /* roomy spacing so bubbles have air above heads */
+  padding: 22px 12px 12px;
+  border-radius: 0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px);
+  /* A subtle "floor": faint grid lines + a soft glow in the room's color. */
+  background:
+    radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--room-tint) 7%, transparent), transparent 70%),
+    repeating-linear-gradient(0deg, transparent 0 23px, color-mix(in srgb, var(--border) 45%, transparent) 23px 24px),
+    repeating-linear-gradient(90deg, transparent 0 23px, color-mix(in srgb, var(--border) 45%, transparent) 23px 24px);
+}
+
+/* Agent avatar: a little SVG character with a name below. Slides between rooms
+   (re-parented in JS) and pops in when it first appears. */
+.agent {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 56px;
+  transition: transform 0.25s ease;
+  animation: agent-pop 0.22s ease;
+}
+@keyframes agent-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.agent-figure {
+  width: 40px;
+  height: 40px;
+  overflow: visible;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+}
+/* The body/shoulders take the activity tint; the face keeps its drawn colors. */
+.agent-figure .fig-body { fill: var(--agent-tint, var(--text-dim)); }
+.agent-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: ui-monospace, Consolas, monospace;
+}
+.agent.active .agent-name { color: var(--text); }
+/* Active agents gently bob so the eye is drawn to who's working. */
+.agent.active .agent-figure { animation: agent-bob 1.6s ease-in-out infinite; }
+@keyframes agent-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+
+/* Speech bubble above the head — shown for a rotating subset (.show-bubble) so
+   they never all pile up. Active agents always show theirs. */
+.bubble {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  z-index: 4;
+  max-width: 180px;
+  width: max-content;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 5px 9px;
+  font-size: 11px;
+  color: var(--text);
+  line-height: 1.35;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.2s;
+}
+.bubble::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -5px;
+  border: 5px solid transparent;
+  border-top-color: var(--bg);
+}
+.agent.show-bubble { z-index: 5; }
+.agent.show-bubble .bubble { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+@media (max-width: 860px) {
+  .office { grid-template-columns: repeat(2, 1fr); }
+}
