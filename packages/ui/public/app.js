@@ -1191,21 +1191,83 @@ const Monitor = (() => {
 // direct map of the core-derived `activity` state; the avatar is plain SVG/CSS
 // (no game engine) and slides between rooms via a CSS transition.
 
-const Office = (() => {
-  const $grid = document.getElementById('office-grid');
+const OfficePro = (() => {
+  const $floor = document.getElementById('office-floor');
   const $count = document.getElementById('office-count');
   const $empty = document.getElementById('office-empty');
-  const rooms = new Map(); // activity -> .room element
-  const agents = new Map(); // session id -> { node, room }
+  let $tv = null; // the lounge TV feed (created in buildFloor)
+  const agents = new Map(); // session id -> { node, room, x, y, queue, slot, ... }
   let started = false;
+  let built = false;
 
-  for (const room of $grid ? $grid.querySelectorAll('.room') : []) {
-    rooms.set(room.dataset.activity, room);
-  }
+  // --- open-plan office: 6 work rooms around a central lounge ----------------
+  // Two columns of 3 rooms (left/right) flank a wide central lounge. Each room
+  // has one door on its lounge-facing (inner) edge. idle/waiting/thinking live
+  // in the lounge itself, so the office never looks empty when work is quiet.
+  const PAD = 16;
+  const RW = 250, RH = 168;        // edge-room size
+  const GAP = 14;                  // vertical gap between stacked rooms
+  const LOUNGE_W = 470;            // central lounge width (wide → landscape feel)
+  const WORLD_W = PAD * 2 + RW * 2 + LOUNGE_W;            // 1002 (~1.73:1)
+  const WORLD_H = PAD * 2 + RH * 3 + GAP * 2;             // 580
+  const LEFTX = PAD;                         // left column room left
+  const RIGHTX = WORLD_W - PAD - RW;         // right column room left
+  const LOUNGE = { x: PAD + RW, y: PAD, w: WORLD_W - 2 * (PAD + RW), h: RH * 3 + GAP * 2 };
+  const LOUNGE_CX = LOUNGE.x + LOUNGE.w / 2;
+  const ROWY = [PAD, PAD + RH + GAP, PAD + 2 * (RH + GAP)];
 
-  function roomFor(activity) {
-    return rooms.get(activity) || rooms.get('idle');
+  const LABELS = {
+    writing: 'Coding', reading: 'Reading', running: 'Running',
+    searching: 'Searching', browsing: 'Browsing', spawning: 'Spawning',
+  };
+  // Which activities are real rooms (left column top→bottom, then right column).
+  const ROOM_DEFS = [
+    { activity: 'writing', side: 'L', row: 0 },
+    { activity: 'running', side: 'L', row: 1 },
+    { activity: 'searching', side: 'L', row: 2 },
+    { activity: 'reading', side: 'R', row: 0 },
+    { activity: 'browsing', side: 'R', row: 1 },
+    { activity: 'spawning', side: 'R', row: 2 },
+  ];
+
+  /** @type {Map<string, object>} zone by activity (rooms) + 'lounge'. */
+  const ZONES = new Map();
+  (function defineZones() {
+    for (const def of ROOM_DEFS) {
+      const x = def.side === 'L' ? LEFTX : RIGHTX;
+      const y = ROWY[def.row];
+      // Door on the inner edge (facing the lounge): right edge for L, left for R.
+      const doorX = def.side === 'L' ? x + RW : x;
+      const door = { x: doorX, y: y + RH / 2 };
+      // Standing slots near the desk (desk along the back/top wall).
+      const slots = [];
+      const cols = 4, sx = x + 34, sy = y + RH - 30, gap = (RW - 68) / (cols - 1);
+      for (let i = 0; i < 8; i++) slots.push({ x: sx + (i % cols) * gap, y: sy - Math.floor(i / cols) * 38 });
+      ZONES.set(def.activity, { kind: 'room', activity: def.activity, side: def.side, x, y, w: RW, h: RH, door, slots });
+    }
+    // Lounge: idle/waiting/thinking sit here, in three separate clusters.
+    const cx = LOUNGE_CX, cy = LOUNGE.y + LOUNGE.h / 2;
+    const ring = (n, rx, ry, oy = 0) => Array.from({ length: n }, (_, i) => {
+      const a = (i / n) * Math.PI * 2 - Math.PI / 2;
+      return { x: cx + Math.cos(a) * rx, y: cy + oy + Math.sin(a) * ry };
+    });
+    ZONES.set('lounge', {
+      kind: 'lounge', activity: 'lounge', ...LOUNGE,
+      door: { x: cx, y: cy },              // "door" = lounge centre (already inside)
+      groups: {
+        waiting: ring(6, 92, 60, -70),     // around the meeting table (upper)
+        idle: ring(4, 70, 30, 70),         // around the sofa (lower)
+        thinking: ring(3, 120, 40, 6),     // loose chairs (mid, wide)
+      },
+    });
+  })();
+
+  /** Resolve an activity to its zone + the slot group to stand in. */
+  function zoneFor(activity) {
+    if (ZONES.has(activity)) return { zone: ZONES.get(activity), group: null };
+    return { zone: ZONES.get('lounge'), group: activity }; // idle/waiting/thinking
   }
+  function roomFor(activity) { return zoneFor(activity).zone; }
   function shortName(s) {
     if (s.cwd) return s.cwd.replace(/[\\/]+$/, '').replace(/^.*[\\/]/, '') || s.projectLabel;
     return s.projectLabel || s.id.slice(0, 8);
@@ -1231,6 +1293,179 @@ const Office = (() => {
   /** Truncate a name for the avatar label; full name lives in the title. */
   function clipName(name, n = 12) {
     return name.length > n ? name.slice(0, n - 1) + '…' : name;
+  }
+
+  // --- floor + furniture ----------------------------------------------------
+
+  /** A desk/prop SVG per room kind, sized to sit against the room's back wall. */
+  function deskSvg(activity) {
+    const g = svgEl('svg', { viewBox: '0 0 80 48', class: 'desk', width: 80, height: 48 });
+    const desk = () => g.appendChild(svgEl('rect', { x: 6, y: 30, width: 68, height: 8, rx: 2, fill: '#8d6a4a' }));
+    const legs = () => { g.appendChild(svgEl('rect', { x: 10, y: 38, width: 4, height: 8, fill: '#6b4f36' })); g.appendChild(svgEl('rect', { x: 66, y: 38, width: 4, height: 8, fill: '#6b4f36' })); };
+    switch (activity) {
+      case 'writing': // monitor with code lines
+        desk(); legs();
+        g.appendChild(svgEl('rect', { x: 26, y: 8, width: 28, height: 20, rx: 2, fill: '#22303a' }));
+        g.appendChild(svgEl('rect', { x: 28, y: 10, width: 24, height: 16, fill: '#0f1720' }));
+        [13, 16, 19, 22].forEach((y, i) => g.appendChild(svgEl('rect', { x: 30, y, width: [14, 10, 16, 8][i], height: 1.6, class: 'desk-tint' })));
+        g.appendChild(svgEl('rect', { x: 36, y: 28, width: 8, height: 2, fill: '#22303a' }));
+        break;
+      case 'reading': // bookshelf
+        for (let i = 0; i < 6; i++) g.appendChild(svgEl('rect', { x: 8 + i * 11, y: 10 + (i % 2) * 2, width: 8, height: 28 - (i % 2) * 2, rx: 1, fill: ['#c25d6b', '#5b8def', '#5fae8c', '#e0a458', '#c08adb', '#8d6a4a'][i] }));
+        g.appendChild(svgEl('rect', { x: 4, y: 38, width: 72, height: 4, fill: '#6b4f36' }));
+        break;
+      case 'running': // terminal box
+        desk(); legs();
+        g.appendChild(svgEl('rect', { x: 24, y: 8, width: 32, height: 20, rx: 2, fill: '#0f1720' }));
+        g.appendChild(svgEl('path', { d: 'M28 13l4 3-4 3', fill: 'none', stroke: '#7fc8a0', 'stroke-width': 1.5 }));
+        g.appendChild(svgEl('rect', { x: 34, y: 19, width: 10, height: 1.6, fill: '#7fc8a0' }));
+        break;
+      case 'searching': // magnifier on desk
+        desk(); legs();
+        g.appendChild(svgEl('circle', { cx: 36, cy: 18, r: 8, fill: 'none', stroke: '#9a9286', 'stroke-width': 2.5 }));
+        g.appendChild(svgEl('path', { d: 'M42 24l6 6', stroke: '#9a9286', 'stroke-width': 3, 'stroke-linecap': 'round' }));
+        break;
+      case 'browsing': // globe
+        desk(); legs();
+        g.appendChild(svgEl('circle', { cx: 40, cy: 16, r: 10, fill: '#2a6f97' }));
+        g.appendChild(svgEl('path', { d: 'M30 16h20M40 6v20M33 9q7 7 0 14M47 9q-7 7 0 14', fill: 'none', stroke: '#7fc8a0', 'stroke-width': 1 }));
+        break;
+      case 'spawning': // portal
+        g.appendChild(svgEl('ellipse', { cx: 40, cy: 26, rx: 16, ry: 18, fill: 'none', stroke: '#7fc8a0', 'stroke-width': 2 }));
+        g.appendChild(svgEl('ellipse', { cx: 40, cy: 26, rx: 9, ry: 11, fill: 'none', stroke: '#7fc8a0', 'stroke-width': 1.5, opacity: 0.6 }));
+        break;
+      case 'thinking': // gear
+        g.appendChild(svgEl('circle', { cx: 40, cy: 22, r: 9, fill: 'none', stroke: '#e0a458', 'stroke-width': 3 }));
+        g.appendChild(svgEl('circle', { cx: 40, cy: 22, r: 3, fill: '#e0a458' }));
+        break;
+      case 'waiting': // clock
+        desk(); legs();
+        g.appendChild(svgEl('circle', { cx: 40, cy: 17, r: 9, fill: '#fff', stroke: '#9a9286', 'stroke-width': 1.5 }));
+        g.appendChild(svgEl('path', { d: 'M40 17v-5M40 17l4 2', stroke: '#2b2620', 'stroke-width': 1.4, 'stroke-linecap': 'round' }));
+        break;
+      default: // idle: a small plant
+        g.appendChild(svgEl('path', { d: 'M40 30c-6 0-9-6-9-12 5 0 9 4 9 12zM40 30c6 0 9-6 9-12-5 0-9 4-9 12z', fill: '#5fae8c' }));
+        g.appendChild(svgEl('path', { d: 'M34 30h12l-2 8H36z', fill: '#b06a4a' }));
+    }
+    return g;
+  }
+
+  /** Build the static floor once: central lounge + 6 edge rooms + furniture. */
+  function buildFloor() {
+    if (built || !$floor) return;
+    built = true;
+    $floor.style.setProperty('--floor-w', WORLD_W + 'px');
+    $floor.style.setProperty('--floor-h', WORLD_H + 'px');
+
+    // Central lounge (drawn first, sits under the rooms' shadows).
+    const lz = ZONES.get('lounge');
+    const lounge = el('div', 'lounge');
+    lounge.style.cssText = `left:${lz.x}px;top:${lz.y}px;width:${lz.w}px;height:${lz.h}px`;
+    // Wall-mounted TV at the top of the lounge showing live Recent Activity.
+    const tv = el('div', 'lounge-tv');
+    tv.style.cssText = `left:${lz.w / 2 - 130}px;top:8px;width:260px`;
+    tv.innerHTML = '<div class="tv-bezel"><div class="tv-head">▌ Recent Activity</div>'
+      + '<div id="office-tv" class="tv-feed"></div></div><div class="tv-stand"></div>';
+    lounge.appendChild(tv);
+    // Lounge props: meeting table (upper), sofa (lower), plants + vending (corners).
+    const addProp = (svg, x, y) => { svg.style.cssText = `left:${x}px;top:${y}px`; lounge.appendChild(svg); };
+    addProp(loungeProp('table'), lz.w / 2 - 60, lz.h * 0.34);
+    addProp(loungeProp('sofa'), lz.w / 2 - 55, lz.h * 0.7);
+    addProp(loungeProp('plant'), 14, lz.h - 46);
+    addProp(loungeProp('plant'), lz.w - 42, lz.h - 46);
+    addProp(loungeProp('vending'), lz.w - 50, 12);
+    addProp(loungeProp('water'), 14, 12);
+    $floor.appendChild(lounge);
+    $tv = lounge.querySelector('#office-tv');
+
+    // Six edge rooms with a door on the lounge-facing edge.
+    for (const def of ROOM_DEFS) {
+      const room = ZONES.get(def.activity);
+      const el2 = el('div', 'room');
+      el2.dataset.activity = room.activity;
+      el2.style.cssText = `left:${room.x}px;top:${room.y}px;width:${room.w}px;height:${room.h}px`;
+      // Door cut into the inner wall (right edge for left col, left edge for right col).
+      const door = el('div', 'room-door ' + (room.side === 'L' ? 'door-right' : 'door-left'));
+      door.style.top = (room.door.y - room.y - 22) + 'px';
+      el2.appendChild(door);
+      el2.appendChild(el('span', 'room-label', LABELS[room.activity]));
+      const desk = deskSvg(room.activity);
+      desk.style.cssText = `left:${room.w / 2 - 40}px;top:8px`;
+      el2.appendChild(desk);
+      const chair = propSvg('chair');
+      chair.style.cssText = `left:${room.w / 2 - 14}px;top:54px`;
+      el2.appendChild(chair);
+      $floor.appendChild(el2);
+    }
+    fitFloor();
+  }
+
+  /** Bigger furniture for the central lounge. */
+  function loungeProp(kind) {
+    if (kind === 'table') { // meeting table with chairs
+      const g = svgEl('svg', { viewBox: '0 0 120 70', class: 'desk', width: 120, height: 70 });
+      g.appendChild(svgEl('ellipse', { cx: 60, cy: 35, rx: 46, ry: 24, fill: '#8d6a4a' }));
+      g.appendChild(svgEl('ellipse', { cx: 60, cy: 33, rx: 40, ry: 19, fill: '#a07a52' }));
+      for (const a of [0, 60, 120, 180, 240, 300]) {
+        const x = 60 + Math.cos(a * Math.PI / 180) * 56, y = 35 + Math.sin(a * Math.PI / 180) * 30;
+        g.appendChild(svgEl('rect', { x: x - 5, y: y - 5, width: 10, height: 10, rx: 2, fill: '#6b4f36' }));
+      }
+      return g;
+    }
+    if (kind === 'sofa') {
+      const g = svgEl('svg', { viewBox: '0 0 110 44', class: 'desk', width: 110, height: 44 });
+      g.appendChild(svgEl('rect', { x: 4, y: 10, width: 102, height: 30, rx: 8, fill: '#5a6b8c' }));
+      g.appendChild(svgEl('rect', { x: 4, y: 4, width: 102, height: 14, rx: 7, fill: '#6b7da0' }));
+      g.appendChild(svgEl('rect', { x: 0, y: 14, width: 12, height: 24, rx: 5, fill: '#6b7da0' }));
+      g.appendChild(svgEl('rect', { x: 98, y: 14, width: 12, height: 24, rx: 5, fill: '#6b7da0' }));
+      return g;
+    }
+    if (kind === 'vending') {
+      const g = svgEl('svg', { viewBox: '0 0 36 48', class: 'desk', width: 36, height: 48 });
+      g.appendChild(svgEl('rect', { x: 2, y: 2, width: 32, height: 44, rx: 3, fill: '#c0392b' }));
+      g.appendChild(svgEl('rect', { x: 6, y: 6, width: 16, height: 26, rx: 2, fill: '#1b2733' }));
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) g.appendChild(svgEl('rect', { x: 8 + c * 5, y: 8 + r * 8, width: 3, height: 5, fill: '#7fc8a0' }));
+      g.appendChild(svgEl('rect', { x: 25, y: 8, width: 6, height: 18, rx: 1, fill: '#2b2620' }));
+      return g;
+    }
+    if (kind === 'water') { // water cooler
+      const g = svgEl('svg', { viewBox: '0 0 24 48', class: 'desk', width: 24, height: 48 });
+      g.appendChild(svgEl('rect', { x: 5, y: 18, width: 14, height: 28, rx: 2, fill: '#e8eef2' }));
+      g.appendChild(svgEl('path', { d: 'M7 18l5-12 5 12z', fill: '#5b8def', opacity: 0.8 }));
+      return g;
+    }
+    // plant (larger)
+    const g = svgEl('svg', { viewBox: '0 0 32 40', class: 'desk', width: 32, height: 40 });
+    g.appendChild(svgEl('path', { d: 'M16 22c-8 0-12-8-12-16 7 0 12 6 12 16zM16 22c8 0 12-8 12-16-7 0-12 6-12 16z', fill: '#5fae8c' }));
+    g.appendChild(svgEl('path', { d: 'M9 22h14l-2 12H11z', fill: '#b06a4a' }));
+    return g;
+  }
+
+  /** Small decorative props (no semantic meaning, just to furnish the room). */
+  function propSvg(kind) {
+    if (kind === 'chair') {
+      const g = svgEl('svg', { viewBox: '0 0 28 28', class: 'desk', width: 28, height: 28 });
+      g.appendChild(svgEl('rect', { x: 6, y: 4, width: 16, height: 5, rx: 2, fill: '#8d6a4a' }));   // backrest
+      g.appendChild(svgEl('rect', { x: 6, y: 12, width: 16, height: 5, rx: 2, fill: '#a07a52' }));  // seat
+      g.appendChild(svgEl('rect', { x: 8, y: 17, width: 3, height: 7, fill: '#6b4f36' }));
+      g.appendChild(svgEl('rect', { x: 17, y: 17, width: 3, height: 7, fill: '#6b4f36' }));
+      return g;
+    }
+    // plant
+    const g = svgEl('svg', { viewBox: '0 0 28 32', class: 'desk', width: 28, height: 32 });
+    g.appendChild(svgEl('path', { d: 'M14 18c-7 0-10-7-10-13 6 0 10 5 10 13zM14 18c7 0 10-7 10-13-6 0-10 5-10 13z', fill: '#5fae8c' }));
+    g.appendChild(svgEl('path', { d: 'M8 18h12l-2 10H10z', fill: '#b06a4a' }));
+    return g;
+  }
+
+  /** Scale the fixed world down to fit the available width. */
+  function fitFloor() {
+    if (!$floor) return;
+    const avail = ($floor.parentElement.clientWidth || WORLD_W) - 4;
+    const scale = Math.min(1, avail / WORLD_W);
+    $floor.style.setProperty('--floor-scale', String(scale));
+    // The scaled element still reserves unscaled height; shrink the stage to match.
+    $floor.parentElement.style.height = (WORLD_H * scale + 4) + 'px';
   }
 
   // --- character avatars (deterministic-random per session id) -------------
@@ -1375,63 +1610,185 @@ const Office = (() => {
     return s.active || (now - (s.mtime || 0) < RECENT_MS);
   }
 
+  // --- slot manager: non-overlapping spots per zone (+ group for the lounge) -
+  const occupied = new Map(); // key (activity|activity:group) -> Set of indices
+  function slotKey(zone, group) { return group ? zone.activity + ':' + group : zone.activity; }
+  function slotsOf(zone, group) { return group ? zone.groups[group] : zone.slots; }
+  function takeSlot(zone, group, entry) {
+    const key = slotKey(zone, group);
+    if (entry.slot && entry.slot.key === key) return entry.slot;
+    releaseSlot(entry);
+    const pool = slotsOf(zone, group);
+    let set = occupied.get(key);
+    if (!set) { set = new Set(); occupied.set(key, set); }
+    let idx = pool.findIndex((_, i) => !set.has(i));
+    if (idx < 0) idx = set.size % pool.length; // overflow: reuse (stack)
+    set.add(idx);
+    entry.slot = { key, idx, ...pool[idx] };
+    return entry.slot;
+  }
+  function releaseSlot(entry) {
+    if (!entry.slot) return;
+    const set = occupied.get(entry.slot.key);
+    if (set) set.delete(entry.slot.idx);
+    entry.slot = null;
+  }
+
+  // --- routing: open-plan — travel through the central lounge ----------------
+  // The lounge is an open space (no internal walls), so agents cross it freely.
+  // A room is only entered/left through its door on the lounge-facing edge, and
+  // every cross-lounge leg stays inside the lounge bounding box, so a path never
+  // cuts through another room.
+  function route(fromZone, toZone, toSlot) {
+    const pts = [];
+    const intoLounge = (z) => (z.kind === 'room'
+      // step from the door out to a point just inside the lounge.
+      ? { x: z.side === 'L' ? LOUNGE.x + 24 : LOUNGE.x + LOUNGE.w - 24, y: z.door.y }
+      : null);
+
+    if (fromZone === toZone) { pts.push({ x: toSlot.x, y: toSlot.y }); return pts; }
+
+    // 1) leave the source: room → door → just inside lounge; lounge → current pos.
+    if (fromZone.kind === 'room') {
+      pts.push({ x: fromZone.door.x, y: fromZone.door.y }); // out the door
+      pts.push(intoLounge(fromZone));                        // onto the lounge floor
+    }
+    // 2) cross the lounge toward the target's entry side (stay within lounge box).
+    if (toZone.kind === 'room') {
+      const entry = intoLounge(toZone);
+      pts.push({ x: entry.x, y: entry.y });                  // to a point by B's door
+      pts.push({ x: toZone.door.x, y: toZone.door.y });      // in through B's door
+      pts.push({ x: toZone.door.x, y: toSlot.y });           // square off to the slot
+      pts.push({ x: toSlot.x, y: toSlot.y });
+    } else {
+      // target is the lounge itself → just walk to the slot.
+      pts.push({ x: toSlot.x, y: toSlot.y });
+    }
+    return pts;
+  }
+
+  /** Walk an agent through a list of points using chained CSS transitions. */
+  const SPEED = 0.18; // px per ms (~feels like walking)
+  function walkTo(entry, points) {
+    entry.queue = points.slice();
+    if (entry.walking) return; // already stepping; queue picked up on arrival
+    stepNext(entry);
+  }
+  function stepNext(entry) {
+    const next = entry.queue && entry.queue.shift();
+    if (!next) { entry.walking = false; entry.node.classList.remove('walking'); return; }
+    const dx = next.x - entry.x, dy = next.y - entry.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 1) { entry.x = next.x; entry.y = next.y; return stepNext(entry); }
+    entry.walking = true;
+    entry.node.classList.add('walking');
+    entry.node.classList.toggle('face-left', dx < -1);
+    const dur = reduceMotion ? 0 : Math.min(1400, Math.max(180, dist / SPEED));
+    entry.node.style.transitionDuration = dur + 'ms';
+    entry.x = next.x; entry.y = next.y;
+    entry.node.style.transform = `translate(${next.x}px,${next.y}px)`;
+    if (dur === 0) { stepNext(entry); return; }
+    clearTimeout(entry.stepTimer);
+    entry.stepTimer = setTimeout(() => stepNext(entry), dur + 30); // drive via timer (robust vs missed transitionend)
+  }
+  /** Place instantly (no walk) — for first appearance. */
+  function placeAt(entry, p) {
+    entry.x = p.x; entry.y = p.y;
+    entry.node.style.transitionDuration = '0ms';
+    entry.node.style.transform = `translate(${p.x}px,${p.y}px)`;
+  }
+
+  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   /** Reconcile avatars with the latest snapshot. */
   function update(sessions) {
-    if (!$grid) return;
+    if (!$floor) return;
+    buildFloor();
     const now = Date.now();
     const visible = sessions.filter((s) => isRecent(s, now));
     const seen = new Set();
     for (const s of visible) {
       seen.add(s.id);
       let entry = agents.get(s.id);
+      const fresh = !entry;
       if (!entry) {
         const node = makeAgent(s);
-        entry = { node, room: null, active: undefined };
+        node.classList.add('spawning-in');
+        $floor.appendChild(node);
+        entry = { node, room: null, active: undefined, x: 0, y: 0, queue: [], walking: false, slot: null };
         agents.set(s.id, entry);
       }
-      const target = roomFor(s.activity);
-      if (target && entry.room !== target) {
-        target.querySelector('.room-floor').appendChild(entry.node);
+      const { zone: target, group } = zoneFor(s.activity);
+      // Re-route when the zone changes, or when the lounge sub-group changes
+      // (e.g. idle → waiting both live in the lounge but at different clusters).
+      if (entry.room !== target || entry.group !== group) {
+        const fromRoom = entry.room;
         entry.room = target;
+        entry.group = group;
+        const slot = takeSlot(target, group, entry);
+        if (fresh || !fromRoom) {
+          // Appear at the zone's entry point, then stroll to the slot.
+          placeAt(entry, { x: target.door.x, y: target.door.y });
+          walkTo(entry, [{ x: slot.x, y: slot.y }]);
+        } else {
+          // Walk out through the lounge to the new zone.
+          walkTo(entry, route(fromRoom, target, slot));
+        }
       }
       // Re-draw the face only when active-ness flips (smile/eyes change).
       if (entry.active !== !!s.active) {
         entry.active = !!s.active;
         entry.node.replaceChild(makeAgentSvg(s, entry.active), entry.node.querySelector('.agent-figure'));
       }
-      // Tint the figure (shirt/body) by activity; keep the face readable.
       entry.node.style.setProperty('--agent-tint', activityColor(s.activity));
       entry.node.classList.toggle('active', !!s.active);
-      // Store the latest bubble text; the rotation loop decides who shows it.
       entry.text = bubbleText(s);
       entry.node.querySelector('.bubble').textContent = entry.text;
     }
     // Drop avatars whose session vanished from the snapshot.
     for (const [id, entry] of agents) {
-      if (!seen.has(id)) { entry.node.remove(); agents.delete(id); }
+      if (!seen.has(id)) { clearTimeout(entry.stepTimer); releaseSlot(entry); entry.node.remove(); agents.delete(id); }
     }
     const n = agents.size;
     $count.textContent = `${n} agent${n === 1 ? '' : 's'}`;
     $empty.hidden = n > 0;
     if (started) applyBubbles();
+    updateTV(visible);
   }
 
-  // Decide which agents currently show their speech bubble. Active agents
-  // always do; the rest take turns (a sliding window) so bubbles don't all
-  // pile up at once. Called on a timer and after each snapshot.
+  /** Feed the lounge TV with the most recent activity across all agents. */
+  function updateTV(sessions) {
+    if (!$tv) return;
+    const rows = [];
+    for (const s of sessions) {
+      const msgs = s.recentMessages || [];
+      const last = msgs[msgs.length - 1];
+      if (!last || !last.text) continue;
+      rows.push({ ts: last.ts || s.mtime || 0, who: shortName(s), text: last.text });
+    }
+    rows.sort((a, b) => b.ts - a.ts);
+    $tv.replaceChildren(...rows.slice(0, 8).map((r) => {
+      const line = el('div', 'tv-line');
+      line.appendChild(el('span', 'tv-who', clipName(r.who, 10)));
+      const t = r.text.length > 46 ? r.text.slice(0, 46) + '…' : r.text;
+      line.appendChild(el('span', 'tv-text', t));
+      return line;
+    }));
+    if (!rows.length) $tv.replaceChildren(el('div', 'tv-line tv-empty', 'No activity yet.'));
+  }
+
+  // One bubble per room at a time (rotating) so bubbles never overlap.
   let rotateOffset = 0;
-  // Show at most ONE bubble per room at a time (rotating through that room's
-  // agents) so speech bubbles never overlap, even in a crowded room.
   function applyBubbles() {
-    const perRoom = new Map(); // room element -> agents that have something to say
+    const perRoom = new Map(); // activity -> agents that have something to say
     for (const [, entry] of agents) {
       entry.node.classList.remove('show-bubble');
       if (!entry.text || !entry.room) continue;
-      if (!perRoom.has(entry.room)) perRoom.set(entry.room, []);
-      perRoom.get(entry.room).push(entry);
+      const key = entry.room.activity;
+      if (!perRoom.has(key)) perRoom.set(key, []);
+      perRoom.get(key).push(entry);
     }
     for (const [, list] of perRoom) {
-      // Prefer an active agent in the room; otherwise rotate through the rest.
       const actives = list.filter((e) => e.active);
       const pickFrom = actives.length ? actives : list;
       pickFrom[rotateOffset % pickFrom.length].node.classList.add('show-bubble');
@@ -1442,19 +1799,225 @@ const Office = (() => {
   function start() {
     if (started) return;
     started = true;
+    buildFloor();
+    applyBubbles();
+    rotateTimer = setInterval(() => { rotateOffset++; applyBubbles(); }, 3000);
+    window.addEventListener('resize', fitFloor);
+  }
+  function stop() {
+    if (rotateTimer) { clearInterval(rotateTimer); rotateTimer = null; }
+    window.removeEventListener('resize', fitFloor);
+    started = false;
+  }
+  function redraw() {
+    // Theme changed: re-tint avatars (rooms/desks use CSS vars and re-tint on
+    // their own).
+    for (const [, entry] of agents) {
+      const act = entry.room ? entry.room.activity : 'idle';
+      entry.node.style.setProperty('--agent-tint', activityColor(act));
+    }
+  }
+
+  return { start, stop, update, redraw };
+})();
+
+// --- office: classic mode (simple 3x3 grid of room cards) -----------------
+// The original, lightweight Office: each room is a card, avatars wrap inside,
+// and an activity change re-parents the avatar (a "jump", no walking). Kept as
+// an alternative to the Pro open-plan view; the two are swapped by a switch.
+const OfficeClassic = (() => {
+  const $grid = document.getElementById('office-classic');
+  const $count = document.getElementById('office-count');
+  const $empty = document.getElementById('office-empty');
+  const rooms = new Map(); // activity -> .oc-room element
+  const agents = new Map();
+  let started = false;
+
+  for (const room of $grid ? $grid.querySelectorAll('.oc-room') : []) {
+    rooms.set(room.dataset.activity, room);
+  }
+  function roomFor(activity) { return rooms.get(activity) || rooms.get('idle'); }
+  function shortName(s) {
+    if (s.cwd) return s.cwd.replace(/[\\/]+$/, '').replace(/^.*[\\/]/, '') || s.projectLabel;
+    return s.projectLabel || s.id.slice(0, 8);
+  }
+  function activityColor(activity) {
+    const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim() || '#888';
+    switch (activity) {
+      case 'writing': return css('--accent');
+      case 'reading': case 'searching': case 'browsing': return css('--magenta');
+      case 'running': case 'spawning': return css('--ok');
+      case 'thinking': return css('--warn');
+      default: return css('--text-dim');
+    }
+  }
+  function bubbleText(s) {
+    const msgs = s.recentMessages || [];
+    const last = msgs[msgs.length - 1];
+    if (!last || !last.text) return '';
+    const t = last.text.trim();
+    return t.length > 80 ? t.slice(0, 80) + '…' : t;
+  }
+  const RECENT_MS = 30 * 60 * 1000;
+  function isRecent(s, now) { return s.active || (now - (s.mtime || 0) < RECENT_MS); }
+  function clipName(name, n = 12) { return name.length > n ? name.slice(0, n - 1) + '…' : name; }
+
+  // Self-contained character drawer (same look as Pro; kept local so this
+  // renderer has no dependency on OfficePro's private helpers).
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  function svgEl(tag, attrs) { const n = document.createElementNS(SVGNS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); return n; }
+  function hashId(id) { let h = 2166136261; for (let i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+  const SKIN = ['#ffdbac', '#f2c9a0', '#e8b088', '#d99a6c', '#c1855a', '#8d5a3c', '#6b4423'];
+  const HAIR = ['#2b2620', '#4a2f1a', '#5a3a22', '#8d5a3c', '#b06a2c', '#c08a4a', '#d4b483', '#9a9286', '#cfcfcf', '#3a3550', '#7a3b5d'];
+  const HAT = ['#d97757', '#7fc8a0', '#c08adb', '#e0a458', '#5b8def', '#e06a5a'];
+  const SHIRT = ['#d97757', '#7fc8a0', '#c08adb', '#e0a458', '#5b8def', '#5fae8c', '#c25d6b', '#6b7280', '#3a3550', '#b0894a'];
+  const INK = '#2b2620';
+  function makeAgentSvg(s, active) {
+    const h = hashId(s.id);
+    const bit = (sh) => (h >> sh) & 1, pick = (a, sh) => a[(h >> sh) % a.length];
+    const skin = pick(SKIN, 2), hair = pick(HAIR, 5), shirt = pick(SHIRT, 21);
+    const feminine = bit(28) === 1;
+    const hairStyle = (feminine ? ['long', 'ponytail', 'bob', 'curly', 'sidePart'] : ['short', 'sidePart', 'buzz', 'curly', 'bald'])[(h >> 9) % 5];
+    const hasHat = (h >> 13) % 10 < 3 && hairStyle !== 'long' && hairStyle !== 'ponytail';
+    const hat = pick(HAT, 17), hasGlasses = (h >> 24) % 10 < 3;
+    const svg = svgEl('svg', { viewBox: '0 0 40 40', class: 'agent-figure' });
+    if (hairStyle === 'long') svg.appendChild(svgEl('path', { d: 'M8 18c-1 9 0 16 2 22h4c-2-7-2-14-1-21zM32 18c1 9 0 16-2 22h-4c2-7 2-14 1-21z', fill: hair }));
+    else if (hairStyle === 'ponytail') svg.appendChild(svgEl('path', { d: 'M30 12c5 1 7 6 6 12-1 4-3 6-5 7l-2-3c2-1 3-3 3-6 0-4-2-7-4-8z', fill: hair }));
+    svg.appendChild(svgEl('path', { d: 'M7 40c0-7 6-11 13-11s13 4 13 11z', fill: shirt }));
+    svg.appendChild(svgEl('circle', { cx: 20, cy: 33, r: 2.2, class: 'fig-body' }));
+    svg.appendChild(svgEl('circle', { cx: 11.5, cy: 18, r: 1.8, fill: skin }));
+    svg.appendChild(svgEl('circle', { cx: 28.5, cy: 18, r: 1.8, fill: skin }));
+    svg.appendChild(svgEl('circle', { cx: 20, cy: 17, r: 11, fill: skin }));
+    if (hairStyle !== 'bald' && hairStyle !== 'buzz') {
+      let d;
+      if (hairStyle === 'short') d = 'M9 15a11 11 0 0 1 22 0c0-4-4-8-11-8S9 11 9 15z';
+      else if (hairStyle === 'sidePart') d = 'M9 16c0-7 6-9 11-9s11 2 11 9c-3-3-7-4-11-4-2 3-7 2-11 4z';
+      else if (hairStyle === 'curly') d = 'M8 16a12 5 0 0 1 24 0a4 4 0 0 0-4-5a4 4 0 0 0-8 0a4 4 0 0 0-8 0a4 4 0 0 0-4 5z';
+      else if (hairStyle === 'bob') d = 'M8 20c0-10 5-13 12-13s12 3 12 13c0-6-2-9-4-9-3 0-4 2-8 2s-5-2-8-2c-2 0-4 3-4 9z';
+      else if (hairStyle === 'long') d = 'M9 16a11 11 0 0 1 22 0c0-5-3-9-11-9S9 11 9 16z';
+      else d = 'M9 15a11 11 0 0 1 22 0c0-5-4-8-11-8S9 10 9 15z';
+      svg.appendChild(svgEl('path', { d, fill: hair }));
+    } else if (hairStyle === 'buzz') svg.appendChild(svgEl('path', { d: 'M9.5 14a10.5 10.5 0 0 1 21 0a11 11 0 0 0-21 0z', fill: hair, opacity: 0.85 }));
+    if (hasHat) { svg.appendChild(svgEl('path', { d: 'M9 13h22l-2-4a10 10 0 0 0-18 0z', fill: hat })); svg.appendChild(svgEl('rect', { x: 7, y: 12, width: 26, height: 2.4, rx: 1.2, fill: hat })); }
+    svg.appendChild(svgEl('path', { d: 'M13.5 13.5h4', stroke: INK, 'stroke-width': 1, 'stroke-linecap': 'round', opacity: 0.7 }));
+    svg.appendChild(svgEl('path', { d: 'M22.5 13.5h4', stroke: INK, 'stroke-width': 1, 'stroke-linecap': 'round', opacity: 0.7 }));
+    const eyeY = 17;
+    if (active) { svg.appendChild(svgEl('circle', { cx: 16, cy: eyeY, r: 1.7, fill: INK })); svg.appendChild(svgEl('circle', { cx: 24, cy: eyeY, r: 1.7, fill: INK })); }
+    else { svg.appendChild(svgEl('path', { d: `M14 ${eyeY}h4`, stroke: INK, 'stroke-width': 1.6, 'stroke-linecap': 'round' })); svg.appendChild(svgEl('path', { d: `M22 ${eyeY}h4`, stroke: INK, 'stroke-width': 1.6, 'stroke-linecap': 'round' })); }
+    if (feminine) svg.appendChild(svgEl('path', { d: 'M13.6 16l-1-1M26.4 16l1-1', stroke: INK, 'stroke-width': 0.9, 'stroke-linecap': 'round' }));
+    if (hasGlasses) { svg.appendChild(svgEl('circle', { cx: 16, cy: eyeY, r: 3, fill: 'none', stroke: INK, 'stroke-width': 1 })); svg.appendChild(svgEl('circle', { cx: 24, cy: eyeY, r: 3, fill: 'none', stroke: INK, 'stroke-width': 1 })); svg.appendChild(svgEl('path', { d: 'M19 17h2', stroke: INK, 'stroke-width': 1 })); }
+    if (feminine) { svg.appendChild(svgEl('circle', { cx: 14, cy: 21, r: 1.6, fill: '#e8806f', opacity: 0.35 })); svg.appendChild(svgEl('circle', { cx: 26, cy: 21, r: 1.6, fill: '#e8806f', opacity: 0.35 })); }
+    svg.appendChild(svgEl('path', { d: active ? 'M16 22q4 4 8 0' : 'M16 23h8', fill: 'none', stroke: INK, 'stroke-width': 1.6, 'stroke-linecap': 'round' }));
+    return svg;
+  }
+
+  function makeAgent(s) {
+    const node = el('div', 'agent oc-agent');     // oc-agent → CSS resets Pro's absolute layout
+    node.dataset.id = s.id;
+    node.title = shortName(s);
+    node.appendChild(makeAgentSvg(s, !!s.active));
+    node.appendChild(el('span', 'agent-name', clipName(shortName(s))));
+    node.appendChild(el('div', 'bubble'));
+    return node;
+  }
+
+  function update(sessions) {
+    if (!$grid) return;
+    const now = Date.now();
+    const visible = sessions.filter((s) => isRecent(s, now));
+    const seen = new Set();
+    for (const s of visible) {
+      seen.add(s.id);
+      let entry = agents.get(s.id);
+      if (!entry) { entry = { node: makeAgent(s), room: null, active: undefined }; agents.set(s.id, entry); }
+      const target = roomFor(s.activity);
+      if (target && entry.room !== target) {
+        target.querySelector('.oc-room-floor').appendChild(entry.node);
+        entry.room = target;
+      }
+      if (entry.active !== !!s.active) {
+        entry.active = !!s.active;
+        entry.node.replaceChild(makeAgentSvg(s, entry.active), entry.node.querySelector('.agent-figure'));
+      }
+      entry.node.style.setProperty('--agent-tint', activityColor(s.activity));
+      entry.node.classList.toggle('active', !!s.active);
+      entry.text = bubbleText(s);
+      entry.node.querySelector('.bubble').textContent = entry.text;
+    }
+    for (const [id, entry] of agents) {
+      if (!seen.has(id)) { entry.node.remove(); agents.delete(id); }
+    }
+    const n = agents.size;
+    $count.textContent = `${n} agent${n === 1 ? '' : 's'}`;
+    $empty.hidden = n > 0;
+    if (started) applyBubbles();
+  }
+
+  let rotateOffset = 0;
+  function applyBubbles() {
+    const perRoom = new Map();
+    for (const [, entry] of agents) {
+      entry.node.classList.remove('show-bubble');
+      if (!entry.text || !entry.room) continue;
+      if (!perRoom.has(entry.room)) perRoom.set(entry.room, []);
+      perRoom.get(entry.room).push(entry);
+    }
+    for (const [, list] of perRoom) {
+      const actives = list.filter((e) => e.active);
+      (actives.length ? actives : list)[rotateOffset % (actives.length ? actives.length : list.length)].node.classList.add('show-bubble');
+    }
+  }
+
+  let rotateTimer = null;
+  function start() {
+    if (started) return;
+    started = true;
     applyBubbles();
     rotateTimer = setInterval(() => { rotateOffset++; applyBubbles(); }, 3000);
   }
+  function stop() { if (rotateTimer) { clearInterval(rotateTimer); rotateTimer = null; } started = false; }
   function redraw() {
-    // Theme changed: re-tint and rebuild faces with fresh palette-independent
-    // colors (skin/hair are fixed; only the activity tint uses CSS vars).
     for (const [, entry] of agents) {
       const act = entry.room ? entry.room.dataset.activity : 'idle';
       entry.node.style.setProperty('--agent-tint', activityColor(act));
     }
   }
+  return { start, stop, update, redraw };
+})();
 
-  return { start, update, redraw };
+// --- office: coordinator — swap Classic ⇄ Pro, remember the choice ---------
+const Office = (() => {
+  const $pro = document.getElementById('office-pro');
+  const $classic = document.getElementById('office-classic');
+  const $switch = document.getElementById('office-mode');
+  let mode = (() => { try { return localStorage.getItem('csm-office-mode') || 'pro'; } catch (e) { return 'pro'; } })();
+  let latest = [];
+  const renderer = () => (mode === 'classic' ? OfficeClassic : OfficePro);
+
+  function applyVisibility() {
+    if ($pro) $pro.hidden = mode !== 'pro';
+    if ($classic) $classic.hidden = mode !== 'classic';
+    if ($switch) $switch.checked = mode === 'pro';
+  }
+  function setMode(m) {
+    if (m === mode) return;
+    // Pause the renderer we're leaving so its timers/listeners stop.
+    const leaving = renderer();
+    if (leaving.stop) leaving.stop();
+    mode = m === 'classic' ? 'classic' : 'pro';
+    try { localStorage.setItem('csm-office-mode', mode); } catch (e) {}
+    applyVisibility();
+    renderer().start();
+    renderer().update(latest);
+  }
+
+  function start() { applyVisibility(); renderer().start(); }
+  function update(sessions) { latest = sessions; renderer().update(sessions); }
+  function redraw() { renderer().redraw(); }
+
+  if ($switch) $switch.addEventListener('change', () => setMode($switch.checked ? 'pro' : 'classic'));
+
+  return { start, update, redraw, setMode };
 })();
 
 // --- keep --topbar-h in sync (header wraps to 2 rows when narrow) ---------

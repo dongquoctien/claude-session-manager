@@ -931,74 +931,158 @@ html, body {
 .office-head { display: flex; align-items: baseline; gap: 12px; padding: 12px 18px 0; flex-wrap: wrap; }
 .office-count { font-weight: 600; }
 .office-hint { color: var(--text-dim); font-size: 12px; }
-.office {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+/* One shared floor plan. A fixed-size "world" is scaled to fit the viewport so
+   every room/avatar can share one absolute coordinate space (needed for agents
+   to walk between rooms along the hallway). World size set in JS via the
+   --floor-w/--floor-h vars; .office-stage scales it down to fit width. */
+.office-stage {
   padding: 14px 18px 40px;
-  max-width: 1100px;
-  margin: 0 auto;
+  display: flex;
+  justify-content: center;
 }
+/* [hidden] must win over the display:flex above (a class beats the UA
+   hidden style, so we restate it explicitly per stage). */
+#office-pro[hidden] { display: none; }
+.office-floor {
+  position: relative;
+  width: var(--floor-w, 1000px);
+  height: var(--floor-h, 620px);
+  flex: none;
+  transform: scale(var(--floor-scale, 1));
+  transform-origin: top center;
+  background: color-mix(in srgb, var(--bg) 80%, #000 10%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+/* Central lounge: an open shared space the avatars cross between rooms. */
+.lounge {
+  position: absolute;
+  z-index: 0;
+  border-radius: var(--radius);
+  background:
+    radial-gradient(80% 60% at 50% 45%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 70%),
+    repeating-linear-gradient(45deg,
+      color-mix(in srgb, var(--border) 16%, var(--bg-elev)) 0 16px,
+      color-mix(in srgb, var(--border) 26%, var(--bg-elev)) 16px 18px);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 50%, transparent);
+}
+/* Wall-mounted TV in the lounge showing live Recent Activity. */
+.lounge-tv { position: absolute; z-index: 2; display: flex; flex-direction: column; align-items: center; }
+.tv-bezel {
+  width: 100%;
+  background: #11161c;
+  border: 3px solid #2b3640;
+  border-radius: 8px;
+  padding: 5px 7px 7px;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
+}
+.tv-head {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #7fc8a0;
+  margin-bottom: 3px;
+  font-family: ui-monospace, Consolas, monospace;
+}
+.tv-feed { display: flex; flex-direction: column; gap: 2px; min-height: 64px; }
+.tv-line { display: flex; gap: 5px; font-size: 9px; line-height: 1.3; font-family: ui-monospace, Consolas, monospace; }
+.tv-who { flex: none; color: #5b9bd5; max-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-text { color: #cdd6df; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-empty { color: #6b7682; }
+.tv-stand { width: 36px; height: 5px; background: #2b3640; border-radius: 0 0 4px 4px; }
 .room {
   --room-tint: var(--text-dim);
-  display: flex;
-  flex-direction: column;
-  min-height: 230px;          /* grows with content — no internal scroll */
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  border-top: 3px solid var(--room-tint);
+  --floor-col: #6b5640;        /* per-zone floor colour (overridden below) */
+  --plank: 32px;               /* floor tile size */
+  position: absolute;          /* placed by JS (left/top/width/height inline) */
   border-radius: var(--radius);
-  /* No overflow:hidden — speech bubbles must be free to spill past the walls.
-     The rounded top corners are kept via the label's own background clip. */
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  /* Thick walls + soft inner shadow give the room some depth. */
+  border: 3px solid color-mix(in srgb, var(--floor-col) 55%, #000 30%);
+  border-top-color: var(--room-tint);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.25),
+    inset 0 0 0 1px color-mix(in srgb, #fff 8%, transparent),
+    inset 0 10px 20px -10px rgba(0, 0, 0, 0.35);
+  /* Tiled "floor": planks/tiles in the zone colour + a soft glow up top. */
+  background:
+    radial-gradient(120% 70% at 50% 0%, color-mix(in srgb, var(--room-tint) 14%, transparent), transparent 65%),
+    repeating-linear-gradient(90deg,
+      color-mix(in srgb, var(--floor-col) 100%, transparent) 0 var(--plank),
+      color-mix(in srgb, var(--floor-col) 86%, #000) var(--plank) calc(var(--plank) + 2px)),
+    repeating-linear-gradient(0deg,
+      transparent 0 var(--plank),
+      color-mix(in srgb, #000 12%, transparent) var(--plank) calc(var(--plank) + 2px)),
+    var(--floor-col);
 }
-/* Each room is tinted by the kind of work it represents (header + accents). */
-.room[data-activity="writing"] { --room-tint: var(--accent); }
+/* Zone tints + floor colours (mirrors the reference: warm wood / grey / blue). */
+.room[data-activity="writing"]  { --room-tint: var(--accent);  --floor-col: #6b4f33; } /* wood */
 .room[data-activity="reading"],
 .room[data-activity="searching"],
-.room[data-activity="browsing"] { --room-tint: var(--magenta); }
+.room[data-activity="browsing"] { --room-tint: var(--magenta); --floor-col: #3a4a63; } /* blue */
 .room[data-activity="running"],
-.room[data-activity="spawning"] { --room-tint: var(--ok); }
-.room[data-activity="thinking"] { --room-tint: var(--warn); }
+.room[data-activity="spawning"] { --room-tint: var(--ok);      --floor-col: #4a5a4a; } /* green-grey */
+.room[data-activity="thinking"] { --room-tint: var(--warn);    --floor-col: #6b5a36; } /* amber wood */
+.room[data-activity="waiting"],
+.room[data-activity="idle"]     { --room-tint: var(--text-dim); --floor-col: #555055; } /* grey */
 .room-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--room-tint);
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 3px) calc(var(--radius) - 3px) 0 0;
+  position: absolute;
+  top: 0; left: 0;
+  z-index: 2;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  padding: 4px 9px;
+  border-radius: 6px 0 8px 0;
+  /* A small "name plate" tinted by the room, readable on the dark floor. */
+  background: color-mix(in srgb, var(--room-tint) 80%, #000 25%);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   font-family: ui-monospace, Consolas, monospace;
   letter-spacing: 0.02em;
+  pointer-events: none;
 }
-.room-floor {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 26px 10px;            /* roomy spacing so bubbles have air above heads */
-  padding: 22px 12px 12px;
-  border-radius: 0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px);
-  /* A subtle "floor": faint grid lines + a soft glow in the room's color. */
-  background:
-    radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--room-tint) 7%, transparent), transparent 70%),
-    repeating-linear-gradient(0deg, transparent 0 23px, color-mix(in srgb, var(--border) 45%, transparent) 23px 24px),
-    repeating-linear-gradient(90deg, transparent 0 23px, color-mix(in srgb, var(--border) 45%, transparent) 23px 24px);
+/* Door opening: a gap in the thick wall on the lounge-facing (inner) side. */
+.room-door {
+  position: absolute;
+  width: 6px;
+  height: 44px;
+  top: 0;
+  background: var(--floor-col);   /* same as room floor → reads as an opening */
+  z-index: 1;
 }
+.room-door.door-right { right: -3px; }  /* left-column rooms: door on right wall */
+.room-door.door-left { left: -3px; }    /* right-column rooms: door on left wall */
 
-/* Agent avatar: a little SVG character with a name below. Slides between rooms
-   (re-parented in JS) and pops in when it first appears. */
+/* Furniture (a desk per room kind) sits against the room's back wall. */
+.desk {
+  position: absolute;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2));
+}
+.desk .desk-tint { fill: var(--room-tint); }
+
+/* Agent avatar: a little SVG character with a name below. Positioned absolutely
+   in the shared floor; JS sets its target with `transform: translate(x,y)` and a
+   transition makes it WALK between rooms along the hallway. */
 .agent {
-  position: relative;
+  position: absolute;
+  left: 0; top: 0;
+  width: 52px;
+  margin-left: -26px;          /* center on the (x,y) point JS sets */
+  margin-top: -44px;           /* anchor near the feet */
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  width: 56px;
-  transition: transform 0.25s ease;
-  animation: agent-pop 0.22s ease;
+  transition: transform 0.6s ease-in-out;  /* duration overridden per leg in JS */
+  will-change: transform;
 }
-@keyframes agent-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.agent.spawning-in { animation: agent-pop 0.22s ease; }
+@keyframes agent-pop { from { opacity: 0; } to { opacity: 1; } }
+/* Mirror the character when walking left. */
+.agent.face-left .agent-figure { transform: scaleX(-1); }
+/* A little step-bob while walking. */
+.agent.walking .agent-figure { animation: agent-step 0.4s ease-in-out infinite; }
+@keyframes agent-step { 0%, 100% { translate: 0 0; } 50% { translate: 0 -2px; } }
 .agent-figure {
   width: 40px;
   height: 40px;
@@ -1008,18 +1092,25 @@ html, body {
 /* The body/shoulders take the activity tint; the face keeps its drawn colors. */
 .agent-figure .fig-body { fill: var(--agent-tint, var(--text-dim)); }
 .agent-name {
-  max-width: 100%;
+  max-width: 60px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 10px;
-  color: var(--text-dim);
+  /* A small pill behind the name so it reads on any floor/theme (dark or light)
+     instead of forcing a single text colour. */
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 6px;
+  padding: 0 4px;
   font-family: ui-monospace, Consolas, monospace;
 }
-.agent.active .agent-name { color: var(--text); }
-/* Active agents gently bob so the eye is drawn to who's working. */
-.agent.active .agent-figure { animation: agent-bob 1.6s ease-in-out infinite; }
-@keyframes agent-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+.agent.active .agent-name { font-weight: 600; border-color: var(--accent); }
+/* Active agents gently bob (uses `translate`, not `transform`, so it composes
+   with the face-left scaleX). Walking's step-bob takes over while moving. */
+.agent.active:not(.walking) .agent-figure { animation: agent-bob 1.6s ease-in-out infinite; }
+@keyframes agent-bob { 0%, 100% { translate: 0 0; } 50% { translate: 0 -2px; } }
 
 /* Speech bubble above the head — shown for a rotating subset (.show-bubble) so
    they never all pile up. Active agents always show theirs. */
@@ -1055,6 +1146,80 @@ html, body {
 .agent.show-bubble { z-index: 5; }
 .agent.show-bubble .bubble { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+/* Respect reduced-motion: no walking glide or step-bob, just appear in place. */
+@media (prefers-reduced-motion: reduce) {
+  .agent { transition: none !important; }
+  .agent.walking .agent-figure,
+  .agent.active:not(.walking) .agent-figure { animation: none; }
+}
+
+/* --- Classic office: the simple 9-card grid (the original `main` layout).
+   Lives alongside Pro; toggled by the office-mode switch. Namespaced under
+   #office-classic / .oc-* so it never clashes with Pro's floorplan rules.
+   The avatar + bubble visuals are shared (.agent/.bubble), but Classic lays
+   agents out in normal flow, so .oc-agent resets Pro's absolute positioning. */
+.office-mode-switch { margin-left: auto; }
+#office-classic {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding: 14px 18px 40px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+#office-classic[hidden] { display: none; }
+.oc-room {
+  --room-tint: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  min-height: 230px;          /* grows with content — no internal scroll */
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--room-tint);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+.oc-room[data-activity="writing"] { --room-tint: var(--accent); }
+.oc-room[data-activity="reading"],
+.oc-room[data-activity="searching"],
+.oc-room[data-activity="browsing"] { --room-tint: var(--magenta); }
+.oc-room[data-activity="running"],
+.oc-room[data-activity="spawning"] { --room-tint: var(--ok); }
+.oc-room[data-activity="thinking"] { --room-tint: var(--warn); }
+.oc-room-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--room-tint);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 3px) calc(var(--radius) - 3px) 0 0;
+  font-family: ui-monospace, Consolas, monospace;
+  letter-spacing: 0.02em;
+}
+.oc-room-floor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 26px 10px;            /* roomy spacing so bubbles have air above heads */
+  padding: 22px 12px 12px;
+  border-radius: 0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px);
+  background:
+    radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--room-tint) 7%, transparent), transparent 70%),
+    repeating-linear-gradient(0deg, transparent 0 23px, color-mix(in srgb, var(--border) 45%, transparent) 23px 24px),
+    repeating-linear-gradient(90deg, transparent 0 23px, color-mix(in srgb, var(--border) 45%, transparent) 23px 24px);
+}
+/* Classic agents flow in the card (reset Pro's absolute placement). */
+.agent.oc-agent {
+  position: relative;
+  left: auto; top: auto;
+  width: 56px;
+  margin: 0;
+  transition: transform 0.25s ease;
+  animation: agent-pop 0.22s ease;
+}
+
 @media (max-width: 860px) {
-  .office { grid-template-columns: repeat(2, 1fr); }
+  #office-classic { grid-template-columns: repeat(2, 1fr); }
 }
