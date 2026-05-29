@@ -950,50 +950,65 @@ html, body {
   flex: none;
   transform: scale(var(--floor-scale, 1));
   transform-origin: top center;
-  background: color-mix(in srgb, var(--bg) 80%, #000 10%);
+  /* World floor — a warm neutral tile so the gaps between rooms read as the
+     same shared office surface (not as a dark void behind floating cards).
+     A subtle checker echoes the room floors at low contrast. */
+  --world-floor: #b8a584;
+  background:
+    conic-gradient(
+      color-mix(in srgb, var(--world-floor) 100%, #fff 3%) 0 25%,
+      color-mix(in srgb, var(--world-floor) 100%, #000 5%) 0 50%,
+      color-mix(in srgb, var(--world-floor) 100%, #fff 3%) 0 75%,
+      color-mix(in srgb, var(--world-floor) 100%, #000 5%) 0)
+      0 0 / 44px 44px,
+    var(--world-floor);
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
-/* Central lounge: an open shared space the avatars cross between rooms. */
+:root[data-theme="light"] .office-floor { --world-floor: #d9c8a8; }
+/* Central lounge: an open shared space the avatars cross between rooms.
+   Same warm floor tone as the world so it reads as one continuous surface,
+   with a gentle accent glow at the middle and faint diagonal stripes to hint
+   at a rug. */
 .lounge {
   position: absolute;
   z-index: 0;
   border-radius: var(--radius);
   background:
-    radial-gradient(80% 60% at 50% 45%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 70%),
+    radial-gradient(80% 60% at 50% 45%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
     repeating-linear-gradient(45deg,
-      color-mix(in srgb, var(--border) 16%, var(--bg-elev)) 0 16px,
-      color-mix(in srgb, var(--border) 26%, var(--bg-elev)) 16px 18px);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 50%, transparent);
+      color-mix(in srgb, var(--world-floor, #b8a584) 100%, #000 6%) 0 18px,
+      color-mix(in srgb, var(--world-floor, #b8a584) 100%, #000 2%) 18px 20px);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #000 12%, transparent);
 }
 /* Wall-mounted TV in the lounge showing live Recent Activity. */
 .lounge-tv { position: absolute; z-index: 2; display: flex; flex-direction: column; align-items: center; }
 .tv-bezel {
   width: 100%;
   background: #11161c;
-  border: 3px solid #2b3640;
-  border-radius: 8px;
-  padding: 5px 7px 7px;
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
+  border: 4px solid #2b3640;
+  border-radius: 10px;
+  padding: 7px 10px 9px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 .tv-head {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: #7fc8a0;
-  margin-bottom: 3px;
+  margin-bottom: 5px;
   font-family: ui-monospace, Consolas, monospace;
 }
-.tv-feed { display: flex; flex-direction: column; gap: 2px; min-height: 64px; }
-.tv-line { display: flex; gap: 5px; font-size: 9px; line-height: 1.3; font-family: ui-monospace, Consolas, monospace; }
-.tv-who { flex: none; color: #5b9bd5; max-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-feed { display: flex; flex-direction: column; gap: 3px; min-height: 92px; }
+.tv-line { display: flex; gap: 7px; font-size: 11px; line-height: 1.35; font-family: ui-monospace, Consolas, monospace; }
+.tv-who { flex: none; color: #5b9bd5; max-width: 74px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tv-text { color: #cdd6df; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tv-empty { color: #6b7682; }
 .tv-stand { width: 36px; height: 5px; background: #2b3640; border-radius: 0 0 4px 4px; }
 .room {
   --room-tint: var(--text-dim);
   --floor-col: #6b5640;        /* per-zone floor colour (overridden below) */
-  --plank: 32px;               /* floor tile size */
+  --tile: 22px;                /* checkerboard tile size */
   position: absolute;          /* placed by JS (left/top/width/height inline) */
   border-radius: var(--radius);
   /* Thick walls + soft inner shadow give the room some depth. */
@@ -1003,16 +1018,17 @@ html, body {
     0 2px 6px rgba(0, 0, 0, 0.25),
     inset 0 0 0 1px color-mix(in srgb, #fff 8%, transparent),
     inset 0 10px 20px -10px rgba(0, 0, 0, 0.35);
-  /* Tiled "floor": planks/tiles in the zone colour + a soft glow up top. */
+  /* Checkerboard ("caro") floor: alternating light/dark tiles of the zone
+     colour, with a soft glow up top. The conic-gradient draws one 2x2 cell;
+     background-size tiles it. */
   background:
     radial-gradient(120% 70% at 50% 0%, color-mix(in srgb, var(--room-tint) 14%, transparent), transparent 65%),
-    repeating-linear-gradient(90deg,
-      color-mix(in srgb, var(--floor-col) 100%, transparent) 0 var(--plank),
-      color-mix(in srgb, var(--floor-col) 86%, #000) var(--plank) calc(var(--plank) + 2px)),
-    repeating-linear-gradient(0deg,
-      transparent 0 var(--plank),
-      color-mix(in srgb, #000 12%, transparent) var(--plank) calc(var(--plank) + 2px)),
-    var(--floor-col);
+    conic-gradient(
+      color-mix(in srgb, var(--floor-col) 100%, #fff 6%) 0 25%,
+      color-mix(in srgb, var(--floor-col) 100%, #000 12%) 0 50%,
+      color-mix(in srgb, var(--floor-col) 100%, #fff 6%) 0 75%,
+      color-mix(in srgb, var(--floor-col) 100%, #000 12%) 0);
+  background-size: auto, calc(var(--tile) * 2) calc(var(--tile) * 2);
 }
 /* Zone tints + floor colours (mirrors the reference: warm wood / grey / blue). */
 .room[data-activity="writing"]  { --room-tint: var(--accent);  --floor-col: #6b4f33; } /* wood */
@@ -1059,6 +1075,24 @@ html, body {
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2));
 }
 .desk .desk-tint { fill: var(--room-tint); }
+/* Arcade cabinets: screens cycle colours so they look alive even if nobody
+   is playing. Bumpers on the pinball table pulse. */
+.arcade-screen {
+  animation: arcade-cycle 2.2s steps(1, end) infinite;
+}
+@keyframes arcade-cycle {
+  0%   { fill: #5b8def; }
+  25%  { fill: #d97757; }
+  50%  { fill: #7fc8a0; }
+  75%  { fill: #c08adb; }
+  100% { fill: #e0a458; }
+}
+.arcade-bumper { animation: arcade-bumper 1.2s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+@keyframes arcade-bumper { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+@media (prefers-reduced-motion: reduce) {
+  .arcade-screen { animation: none; }
+  .arcade-bumper { animation: none; }
+}
 
 /* Agent avatar: a little SVG character with a name below. Positioned absolutely
    in the shared floor; JS sets its target with `transform: translate(x,y)` and a
@@ -1106,6 +1140,9 @@ html, body {
   padding: 0 4px;
   font-family: ui-monospace, Consolas, monospace;
 }
+/* In Pro, avatars are 52px wide and may cluster densely (esp. the lounge),
+   so trim the name pill so neighbouring plates don't bleed into each other. */
+#office-pro .agent-name { max-width: 48px; }
 .agent.active .agent-name { font-weight: 600; border-color: var(--accent); }
 /* Active agents gently bob (uses `translate`, not `transform`, so it composes
    with the face-left scaleX). Walking's step-bob takes over while moving. */
@@ -1159,9 +1196,10 @@ html, body {
    The avatar + bubble visuals are shared (.agent/.bubble), but Classic lays
    agents out in normal flow, so .oc-agent resets Pro's absolute positioning. */
 /* Office head controls: Chatter toggle pushed to the right, the view picker
-   (segmented control) just after it. */
-.office-chatter { margin-left: auto; }
-.office-mode-seg { margin-left: 16px; }
+   (segmented control) just after it. The head row aligns text on the baseline,
+   so center these controls on themselves to keep the pill and toggle level. */
+.office-chatter { margin-left: auto; align-self: center; }
+.office-mode-seg { margin-left: 16px; align-self: center; }
 /* Office view picker: a segmented control (two equal options, not on/off). */
 .seg {
   display: inline-flex;

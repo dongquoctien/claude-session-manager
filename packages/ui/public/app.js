@@ -1229,6 +1229,38 @@ const CHATTER_FALLBACK = {
 /** Live pool overlaid by the server when available; starts as the fallback. */
 const liveChatter = { ...CHATTER_FALLBACK };
 
+/** Game-themed chatter for agents idling >10 min and now playing the arcade. */
+const ARCADE_CHATTER = {
+  en: [
+    'New high score incoming.', 'One more game, then I work.',
+    'Boss fight time.', 'Press start, no thoughts.',
+    'GAME ON.', 'High score or it didn\'t happen.',
+    'Just five more credits.', 'This pinball is cursed.',
+    'Coffee break = arcade break.', 'Stop watching, you\'re jinxing me.',
+  ],
+  ko: [
+    '하이스코어 가즈아.', '한 판만 더 하고 일할게.',
+    '보스전 간다.', '스타트 누르고 무념무상.',
+    '게임 시작!', '하이스코어 못 찍으면 안 한 거임.',
+    '동전 다섯 개만 더.', '이 핀볼 저주받았다.',
+    '커피 휴식 = 오락실 휴식.', '쳐다보지 마, 망해.',
+  ],
+  ja: [
+    'ハイスコア更新くるぞ。', 'あと一回だけやって仕事する。',
+    'ボス戦行きます。', 'スタート押して無心。',
+    'ゲーム開始！', 'ハイスコアじゃなきゃ意味ない。',
+    'あと5クレジット。', 'このピンボール呪われてる。',
+    'コーヒー休憩イコール筐体休憩。', '見ないで、ミスる。',
+  ],
+  vi: [
+    'High score sắp về tay.', 'Một ván nữa thôi rồi làm việc.',
+    'Đánh boss đây.', 'Bấm start, đầu óc trống rỗng.',
+    'GAME ON.', 'Phải high score chứ.',
+    'Thêm 5 xu nữa thôi.', 'Pinball này bị nguyền rồi.',
+    'Nghỉ cà phê = nghỉ chơi game.', 'Đừng nhìn, mày phá tao.',
+  ],
+};
+
 /** Guess a session's language from its latest message text. Cheap, client-side. */
 function detectLang(text) {
   if (!text) return 'en';
@@ -1246,6 +1278,12 @@ function pickChatter(lang) {
   let use = lang && liveChatter[lang] && liveChatter[lang].length ? lang : 'en';
   if (Math.random() < 0.3) use = langs[Math.floor(Math.random() * langs.length)];
   const pool = (liveChatter[use] && liveChatter[use].length) ? liveChatter[use] : CHATTER_FALLBACK.en;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+/** Pick an arcade-themed line for agents playing the cabinet. */
+function pickArcadeChatter(lang) {
+  const pool = ARCADE_CHATTER[lang] || ARCADE_CHATTER.en;
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
@@ -1270,13 +1308,16 @@ function setChatterEnabled(on) {
  * Decide what an avatar says. When chatter is off, just the real recent line.
  * When on, mix in banter — heavily in the lounge (idle/waiting/thinking), only
  * occasionally for agents busy at work, so you can still read what they're doing.
+ * Agents at the arcade always speak game-themed lines so it reads as "playing".
  * Language follows the session's own recent text.
  * @param {string} realText  the session's latest real message (may be '')
  * @param {boolean} inLounge true if the avatar is sitting in the lounge
+ * @param {boolean} [inGame] true if the avatar is playing the arcade
  */
-function composeBubble(realText, inLounge) {
+function composeBubble(realText, inLounge, inGame) {
   if (!chatterEnabled) return realText;
   const lang = detectLang(realText);
+  if (inGame) return pickArcadeChatter(lang);
   const chatterChance = inLounge ? 0.85 : 0.25;
   if (!realText || Math.random() < chatterChance) return pickChatter(lang);
   return realText;
@@ -1303,11 +1344,11 @@ const OfficePro = (() => {
   // has one door on its lounge-facing (inner) edge. idle/waiting/thinking live
   // in the lounge itself, so the office never looks empty when work is quiet.
   const PAD = 16;
-  const RW = 250, RH = 168;        // edge-room size
-  const GAP = 14;                  // vertical gap between stacked rooms
-  const LOUNGE_W = 470;            // central lounge width (wide → landscape feel)
-  const WORLD_W = PAD * 2 + RW * 2 + LOUNGE_W;            // 1002 (~1.73:1)
-  const WORLD_H = PAD * 2 + RH * 3 + GAP * 2;             // 580
+  const RW = 300, RH = 200;        // edge-room size (was 250×168 — +20%)
+  const GAP = 16;                  // vertical gap between stacked rooms
+  const LOUNGE_W = 540;            // central lounge width (wide → landscape feel)
+  const WORLD_W = PAD * 2 + RW * 2 + LOUNGE_W;            // 1172
+  const WORLD_H = PAD * 2 + RH * 3 + GAP * 2;             // 664
   const LEFTX = PAD;                         // left column room left
   const RIGHTX = WORLD_W - PAD - RW;         // right column room left
   const LOUNGE = { x: PAD + RW, y: PAD, w: WORLD_W - 2 * (PAD + RW), h: RH * 3 + GAP * 2 };
@@ -1337,26 +1378,64 @@ const OfficePro = (() => {
       // Door on the inner edge (facing the lounge): right edge for L, left for R.
       const doorX = def.side === 'L' ? x + RW : x;
       const door = { x: doorX, y: y + RH / 2 };
-      // Standing slots near the desk (desk along the back/top wall).
+      // Standing slots near the desk: a 4-wide grid that grows by adding rows
+      // upward so an unexpectedly crowded room still spreads people out.
       const slots = [];
       const cols = 4, sx = x + 34, sy = y + RH - 30, gap = (RW - 68) / (cols - 1);
-      for (let i = 0; i < 8; i++) slots.push({ x: sx + (i % cols) * gap, y: sy - Math.floor(i / cols) * 38 });
+      const make = (i) => ({ x: sx + (i % cols) * gap, y: sy - Math.floor(i / cols) * 38 });
+      for (let i = 0; i < 8; i++) slots.push(make(i));
+      slots.makeAt = make;
       ZONES.set(def.activity, { kind: 'room', activity: def.activity, side: def.side, x, y, w: RW, h: RH, door, slots });
     }
     // Lounge: idle/waiting/thinking sit here, in three separate clusters.
+    // Each cluster knows how to grow: extra people land on a wider concentric
+    // ring instead of stomping a held slot.
     const cx = LOUNGE_CX, cy = LOUNGE.y + LOUNGE.h / 2;
-    const ring = (n, rx, ry, oy = 0) => Array.from({ length: n }, (_, i) => {
-      const a = (i / n) * Math.PI * 2 - Math.PI / 2;
-      return { x: cx + Math.cos(a) * rx, y: cy + oy + Math.sin(a) * ry };
-    });
+    // ringGen returns a slot array seeded with `base` positions on an inner
+    // ellipse; .makeAt(i) lazily produces additional ones on outer ellipses.
+    // `phase` offsets the first slot's angle so neighbouring groups don't all
+    // place their first agent on the same x (the ring tops would otherwise
+    // align vertically — see waiting/thinking/idle below).
+    const ringGen = (base, rx, ry, oy, phase = 0) => {
+      const slotAt = (i) => {
+        const tier = Math.floor(i / base);                // 0 = innermost
+        const within = i % base;
+        const n = base + tier * 2;                        // wider tiers hold more
+        const rxT = rx + tier * 28, ryT = ry + tier * 22;
+        const a = phase + (within / n) * Math.PI * 2 - Math.PI / 2;
+        return { x: cx + Math.cos(a) * rxT, y: cy + oy + Math.sin(a) * ryT };
+      };
+      const arr = [];
+      for (let i = 0; i < base; i++) arr.push(slotAt(i));
+      arr.makeAt = slotAt;
+      return arr;
+    };
     ZONES.set('lounge', {
       kind: 'lounge', activity: 'lounge', ...LOUNGE,
       door: { x: cx, y: cy },              // "door" = lounge centre (already inside)
-      groups: {
-        waiting: ring(6, 92, 60, -70),     // around the meeting table (upper)
-        idle: ring(4, 70, 30, 70),         // around the sofa (lower)
-        thinking: ring(3, 120, 40, 6),     // loose chairs (mid, wide)
-      },
+      groups: (() => {
+        // Three concentric clusters split vertically — waiting at the top by
+        // the meeting table, thinking in the middle, idle at the sofa below.
+        // Each gets a unique phase so the "first" slot of each ring lands at
+        // a different angle and the vertical line through cx isn't crowded.
+        // Rings are sized so nameplates (~60px wide) clear each other.
+        const base = {
+          waiting:  ringGen(6, 140, 62, -150, 0),
+          thinking: ringGen(4, 170, 50,    0, Math.PI / 4),
+          idle:     ringGen(4, 120, 48,  150, Math.PI / 2),
+        };
+        // One pinball cabinet at the bottom-right corner. Max 2 slots in
+        // front (player + spectator); overflow is rejected so extras stay at
+        // the sofa instead of cramming the corner.
+        const pinballX = LOUNGE.x + LOUNGE.w - 16 - 20;
+        const playY    = LOUNGE.y + LOUNGE.h - 36;
+        const playing = [
+          { x: pinballX,      y: playY },
+          { x: pinballX - 26, y: playY },
+        ];
+        // No makeAt — pool is hard-capped at 2.
+        return { ...base, playing };
+      })(),
     });
   })();
 
@@ -1461,16 +1540,20 @@ const OfficePro = (() => {
     lounge.style.cssText = `left:${lz.x}px;top:${lz.y}px;width:${lz.w}px;height:${lz.h}px`;
     // Wall-mounted TV at the top of the lounge showing live Recent Activity.
     const tv = el('div', 'lounge-tv');
-    tv.style.cssText = `left:${lz.w / 2 - 130}px;top:8px;width:260px`;
+    tv.style.cssText = `left:${lz.w / 2 - 170}px;top:8px;width:340px`;
     tv.innerHTML = '<div class="tv-bezel"><div class="tv-head">▌ Recent Activity</div>'
       + '<div id="office-tv" class="tv-feed"></div></div><div class="tv-stand"></div>';
     lounge.appendChild(tv);
-    // Lounge props: meeting table (upper), sofa (lower), plants + vending (corners).
+    // Lounge props: meeting table (upper), sofa (lower), plants + vending (corners),
+    // and two arcade cabinets at the bottom corners where idle agents go to play.
     const addProp = (svg, x, y) => { svg.style.cssText = `left:${x}px;top:${y}px`; lounge.appendChild(svg); };
     addProp(loungeProp('table'), lz.w / 2 - 60, lz.h * 0.34);
     addProp(loungeProp('sofa'), lz.w / 2 - 55, lz.h * 0.7);
+    // One pinball cabinet at the bottom-right corner of the lounge. Caps the
+    // queue at two players (see playSlot) so it doesn't crowd the corner; the
+    // right-corner plant is dropped to give the cabinet room to breathe.
+    addProp(loungeProp('pinball'), lz.w - 16 - 40, lz.h - 110);
     addProp(loungeProp('plant'), 14, lz.h - 46);
-    addProp(loungeProp('plant'), lz.w - 42, lz.h - 46);
     addProp(loungeProp('vending'), lz.w - 50, 12);
     addProp(loungeProp('water'), 14, 12);
     $floor.appendChild(lounge);
@@ -1530,6 +1613,33 @@ const OfficePro = (() => {
       const g = svgEl('svg', { viewBox: '0 0 24 48', class: 'desk', width: 24, height: 48 });
       g.appendChild(svgEl('rect', { x: 5, y: 18, width: 14, height: 28, rx: 2, fill: '#e8eef2' }));
       g.appendChild(svgEl('path', { d: 'M7 18l5-12 5 12z', fill: '#5b8def', opacity: 0.8 }));
+      return g;
+    }
+    if (kind === 'arcade') { // upright arcade cabinet — purple, blinking screen
+      const g = svgEl('svg', { viewBox: '0 0 40 60', class: 'desk arcade-cab', width: 40, height: 60 });
+      g.appendChild(svgEl('rect', { x: 4, y: 2, width: 32, height: 56, rx: 4, fill: '#3a2a55' }));     // cabinet body
+      g.appendChild(svgEl('rect', { x: 4, y: 0, width: 32, height: 8,  rx: 3, fill: '#5b3d8a' }));     // marquee
+      g.appendChild(svgEl('rect', { x: 8, y: 10, width: 24, height: 18, rx: 2, fill: '#0c1424' }));    // screen frame
+      g.appendChild(svgEl('rect', { x: 10, y: 12, width: 20, height: 14, class: 'arcade-screen', fill: '#5b8def' })); // screen (blinks via CSS)
+      g.appendChild(svgEl('rect', { x: 8, y: 32, width: 24, height: 10, rx: 2, fill: '#241a36' }));    // control deck
+      g.appendChild(svgEl('circle', { cx: 14, cy: 37, r: 2, fill: '#d97757' }));                       // joystick ball
+      g.appendChild(svgEl('rect',   { x: 13, y: 37, width: 2, height: 4, fill: '#2b2620' }));          // joystick stick
+      g.appendChild(svgEl('circle', { cx: 22, cy: 38, r: 1.6, fill: '#7fc8a0' }));                     // button A
+      g.appendChild(svgEl('circle', { cx: 26, cy: 38, r: 1.6, fill: '#e0a458' }));                     // button B
+      g.appendChild(svgEl('rect', { x: 6, y: 44, width: 28, height: 12, rx: 2, fill: '#241a36' }));    // base
+      return g;
+    }
+    if (kind === 'pinball') { // pinball machine (tilted top)
+      const g = svgEl('svg', { viewBox: '0 0 40 60', class: 'desk arcade-cab', width: 40, height: 60 });
+      g.appendChild(svgEl('rect', { x: 4, y: 0, width: 32, height: 10, rx: 3, fill: '#7a3b5d' }));     // backbox
+      g.appendChild(svgEl('rect', { x: 4, y: 10, width: 32, height: 38, rx: 4, fill: '#2b3b55' }));    // playfield body
+      g.appendChild(svgEl('rect', { x: 7, y: 13, width: 26, height: 30, rx: 3, fill: '#0c1424' }));    // playfield glass
+      g.appendChild(svgEl('circle', { cx: 14, cy: 22, r: 2, class: 'arcade-bumper', fill: '#e06a5a' }));
+      g.appendChild(svgEl('circle', { cx: 24, cy: 19, r: 2, class: 'arcade-bumper', fill: '#7fc8a0' }));
+      g.appendChild(svgEl('circle', { cx: 20, cy: 30, r: 1.6, class: 'arcade-bumper', fill: '#e0a458' }));
+      g.appendChild(svgEl('rect',   { x: 12, y: 36, width: 6, height: 2, fill: '#5b8def' }));          // flipper L
+      g.appendChild(svgEl('rect',   { x: 22, y: 36, width: 6, height: 2, fill: '#5b8def' }));          // flipper R
+      g.appendChild(svgEl('rect', { x: 4, y: 48, width: 32, height: 10, rx: 2, fill: '#241a36' }));    // legs/base
       return g;
     }
     // plant (larger)
@@ -1720,7 +1830,12 @@ const OfficePro = (() => {
     let set = occupied.get(key);
     if (!set) { set = new Set(); occupied.set(key, set); }
     let idx = pool.findIndex((_, i) => !set.has(i));
-    if (idx < 0) idx = set.size % pool.length; // overflow: reuse (stack)
+    // Overflow: grow the pool on the fly so extra agents stand somewhere new
+    // (a wider ring / extra row) instead of stacking on top of someone else.
+    if (idx < 0) {
+      idx = pool.length;
+      pool.push(pool.makeAt ? pool.makeAt(idx) : pool[idx % Math.max(1, pool.length)]);
+    }
     set.add(idx);
     entry.slot = { key, idx, ...pool[idx] };
     return entry.slot;
@@ -1804,6 +1919,17 @@ const OfficePro = (() => {
     buildFloor();
     const now = Date.now();
     const visible = sessions.filter((s) => isRecent(s, now));
+    // Pinball cap is 2; whoever has been idle longest gets the cabinet (a
+    // session that just crossed 10min shouldn't beat one idle for 30min).
+    const ARCADE_IDLE_MS = 10 * 60 * 1000;
+    const ARCADE_CAP = 2;
+    const arcadeIds = new Set(
+      visible
+        .filter((s) => s.activity === 'idle' && (now - (s.mtime || 0)) > ARCADE_IDLE_MS)
+        .sort((a, b) => (a.mtime || 0) - (b.mtime || 0))
+        .slice(0, ARCADE_CAP)
+        .map((s) => s.id),
+    );
     const seen = new Set();
     for (const s of visible) {
       seen.add(s.id);
@@ -1816,7 +1942,9 @@ const OfficePro = (() => {
         entry = { node, room: null, active: undefined, x: 0, y: 0, queue: [], walking: false, slot: null };
         agents.set(s.id, entry);
       }
-      const { zone: target, group } = zoneFor(s.activity);
+      let { zone: target, group } = zoneFor(s.activity);
+      const inGame = arcadeIds.has(s.id);
+      if (inGame) group = 'playing';
       // Re-route when the zone changes, or when the lounge sub-group changes
       // (e.g. idle → waiting both live in the lounge but at different clusters).
       if (entry.room !== target || entry.group !== group) {
@@ -1842,6 +1970,7 @@ const OfficePro = (() => {
       entry.node.classList.toggle('active', !!s.active);
       entry.realText = bubbleText(s);
       entry.inLounge = target.kind === 'lounge';
+      entry.inGame = inGame;
     }
     // Drop avatars whose session vanished from the snapshot.
     for (const [id, entry] of agents) {
@@ -1892,7 +2021,7 @@ const OfficePro = (() => {
       const pickFrom = actives.length ? actives : list;
       const entry = pickFrom[rotateOffset % pickFrom.length];
       // Compose here (not in update) so banter rotates with the 3s timer.
-      const text = composeBubble(entry.realText || '', !!entry.inLounge);
+      const text = composeBubble(entry.realText || '', !!entry.inLounge, !!entry.inGame);
       if (!text) continue;
       entry.node.querySelector('.bubble').textContent = text;
       entry.node.classList.add('show-bubble');
@@ -1905,7 +2034,7 @@ const OfficePro = (() => {
     started = true;
     buildFloor();
     applyBubbles();
-    rotateTimer = setInterval(() => { rotateOffset++; applyBubbles(); }, 3000);
+    rotateTimer = setInterval(() => { rotateOffset++; applyBubbles(); }, 5000);
     window.addEventListener('resize', fitFloor);
   }
   function stop() {
@@ -2085,7 +2214,7 @@ const OfficeClassic = (() => {
     if (started) return;
     started = true;
     applyBubbles();
-    rotateTimer = setInterval(() => { rotateOffset++; applyBubbles(); }, 3000);
+    rotateTimer = setInterval(() => { rotateOffset++; applyBubbles(); }, 5000);
   }
   function stop() { if (rotateTimer) { clearInterval(rotateTimer); rotateTimer = null; } started = false; }
   function redraw() {
