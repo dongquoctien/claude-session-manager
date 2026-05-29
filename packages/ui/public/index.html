@@ -281,13 +281,34 @@
     <div class="office-head">
       <span id="office-count" class="office-count" aria-live="polite">0 agents</span>
       <span class="office-hint">Each agent is a session; it moves to the room matching what it's doing.</span>
+      <!-- Switch between Classic (simple grid) and Pro (open-plan, walking). -->
+      <label class="switch office-mode-switch" title="Classic grid vs Pro open-plan office">
+        <span class="switch-label">Classic</span>
+        <input id="office-mode" type="checkbox" />
+        <span class="switch-track"><span class="switch-knob"></span></span>
+        <span class="switch-label">Pro</span>
+      </label>
     </div>
-    <!-- One shared floor plan: rooms + furniture + walking avatars are all
-         positioned absolutely inside #office-floor and built by JS, so agents
-         can walk between rooms along the hallway. -->
-    <div class="office-stage">
+
+    <!-- PRO: one shared floor plan; rooms + furniture + walking avatars are
+         positioned absolutely in #office-floor and built by JS. -->
+    <div class="office-stage" id="office-pro">
       <div id="office-floor" class="office-floor"></div>
     </div>
+
+    <!-- CLASSIC: a simple 3x3 grid of room cards (avatars wrap inside). -->
+    <div id="office-classic" hidden>
+      <div class="oc-room" data-activity="thinking"><span class="oc-room-label">Thinking</span><div class="oc-room-floor"></div></div>
+      <div class="oc-room" data-activity="reading"><span class="oc-room-label">Reading</span><div class="oc-room-floor"></div></div>
+      <div class="oc-room" data-activity="writing"><span class="oc-room-label">Coding</span><div class="oc-room-floor"></div></div>
+      <div class="oc-room" data-activity="running"><span class="oc-room-label">Running</span><div class="oc-room-floor"></div></div>
+      <div class="oc-room" data-activity="searching"><span class="oc-room-label">Searching</span><div class="oc-room-floor"></div></div>
+      <div class="oc-room" data-activity="browsing"><span class="oc-room-label">Browsing</span><div class="oc-room-floor"></div></div>
+      <div class="oc-room" data-activity="spawning"><span class="oc-room-label">Spawning</span><div class="oc-room-floor"></div></div>
+      <div class="oc-room" data-activity="waiting"><span class="oc-room-label">Waiting</span><div class="oc-room-floor"></div></div>
+      <div class="oc-room" data-activity="idle"><span class="oc-room-label">Idle</span><div class="oc-room-floor"></div></div>
+    </div>
+
     <div id="office-empty" class="empty" hidden>No agents yet.</div>
   </section>
 

@@ -940,6 +940,9 @@ html, body {
   display: flex;
   justify-content: center;
 }
+/* [hidden] must win over the display:flex above (a class beats the UA
+   hidden style, so we restate it explicitly per stage). */
+#office-pro[hidden] { display: none; }
 .office-floor {
   position: relative;
   width: var(--floor-w, 1000px);
@@ -1148,4 +1151,75 @@ html, body {
   .agent { transition: none !important; }
   .agent.walking .agent-figure,
   .agent.active:not(.walking) .agent-figure { animation: none; }
+}
+
+/* --- Classic office: the simple 9-card grid (the original `main` layout).
+   Lives alongside Pro; toggled by the office-mode switch. Namespaced under
+   #office-classic / .oc-* so it never clashes with Pro's floorplan rules.
+   The avatar + bubble visuals are shared (.agent/.bubble), but Classic lays
+   agents out in normal flow, so .oc-agent resets Pro's absolute positioning. */
+.office-mode-switch { margin-left: auto; }
+#office-classic {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding: 14px 18px 40px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+#office-classic[hidden] { display: none; }
+.oc-room {
+  --room-tint: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  min-height: 230px;          /* grows with content — no internal scroll */
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--room-tint);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+.oc-room[data-activity="writing"] { --room-tint: var(--accent); }
+.oc-room[data-activity="reading"],
+.oc-room[data-activity="searching"],
+.oc-room[data-activity="browsing"] { --room-tint: var(--magenta); }
+.oc-room[data-activity="running"],
+.oc-room[data-activity="spawning"] { --room-tint: var(--ok); }
+.oc-room[data-activity="thinking"] { --room-tint: var(--warn); }
+.oc-room-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--room-tint);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 3px) calc(var(--radius) - 3px) 0 0;
+  font-family: ui-monospace, Consolas, monospace;
+  letter-spacing: 0.02em;
+}
+.oc-room-floor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 26px 10px;            /* roomy spacing so bubbles have air above heads */
+  padding: 22px 12px 12px;
+  border-radius: 0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px);
+  background:
+    radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--room-tint) 7%, transparent), transparent 70%),
+    repeating-linear-gradient(0deg, transparent 0 23px, color-mix(in srgb, var(--border) 45%, transparent) 23px 24px),
+    repeating-linear-gradient(90deg, transparent 0 23px, color-mix(in srgb, var(--border) 45%, transparent) 23px 24px);
+}
+/* Classic agents flow in the card (reset Pro's absolute placement). */
+.agent.oc-agent {
+  position: relative;
+  left: auto; top: auto;
+  width: 56px;
+  margin: 0;
+  transition: transform 0.25s ease;
+  animation: agent-pop 0.22s ease;
+}
+
+@media (max-width: 860px) {
+  #office-classic { grid-template-columns: repeat(2, 1fr); }
 }
