@@ -957,34 +957,50 @@ html, body {
 }
 .room {
   --room-tint: var(--text-dim);
+  --floor-col: #6b5640;        /* per-zone floor colour (overridden below) */
+  --plank: 32px;               /* floor tile size */
   position: absolute;          /* placed by JS (left/top/width/height inline) */
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  border-top: 3px solid var(--room-tint);
   border-radius: var(--radius);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-  /* Faint floor inside each room, glowing in the room's color. */
-  background-image:
-    radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--room-tint) 8%, transparent), transparent 70%);
+  /* Thick walls + soft inner shadow give the room some depth. */
+  border: 3px solid color-mix(in srgb, var(--floor-col) 55%, #000 30%);
+  border-top-color: var(--room-tint);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.25),
+    inset 0 0 0 1px color-mix(in srgb, #fff 8%, transparent),
+    inset 0 10px 20px -10px rgba(0, 0, 0, 0.35);
+  /* Tiled "floor": planks/tiles in the zone colour + a soft glow up top. */
+  background:
+    radial-gradient(120% 70% at 50% 0%, color-mix(in srgb, var(--room-tint) 14%, transparent), transparent 65%),
+    repeating-linear-gradient(90deg,
+      color-mix(in srgb, var(--floor-col) 100%, transparent) 0 var(--plank),
+      color-mix(in srgb, var(--floor-col) 86%, #000) var(--plank) calc(var(--plank) + 2px)),
+    repeating-linear-gradient(0deg,
+      transparent 0 var(--plank),
+      color-mix(in srgb, #000 12%, transparent) var(--plank) calc(var(--plank) + 2px)),
+    var(--floor-col);
 }
-.room[data-activity="writing"] { --room-tint: var(--accent); }
+/* Zone tints + floor colours (mirrors the reference: warm wood / grey / blue). */
+.room[data-activity="writing"]  { --room-tint: var(--accent);  --floor-col: #6b4f33; } /* wood */
 .room[data-activity="reading"],
 .room[data-activity="searching"],
-.room[data-activity="browsing"] { --room-tint: var(--magenta); }
+.room[data-activity="browsing"] { --room-tint: var(--magenta); --floor-col: #3a4a63; } /* blue */
 .room[data-activity="running"],
-.room[data-activity="spawning"] { --room-tint: var(--ok); }
-.room[data-activity="thinking"] { --room-tint: var(--warn); }
+.room[data-activity="spawning"] { --room-tint: var(--ok);      --floor-col: #4a5a4a; } /* green-grey */
+.room[data-activity="thinking"] { --room-tint: var(--warn);    --floor-col: #6b5a36; } /* amber wood */
+.room[data-activity="waiting"],
+.room[data-activity="idle"]     { --room-tint: var(--text-dim); --floor-col: #555055; } /* grey */
 .room-label {
   position: absolute;
   top: 0; left: 0;
+  z-index: 2;
   font-size: 11px;
-  font-weight: 600;
-  color: var(--room-tint);
-  padding: 5px 9px;
-  border-bottom: 1px solid var(--border);
-  border-right: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 3px) 0 8px 0;
-  background: color-mix(in srgb, var(--bg-elev) 88%, var(--room-tint));
+  font-weight: 700;
+  color: #fff;
+  padding: 4px 9px;
+  border-radius: 6px 0 8px 0;
+  /* A small "name plate" tinted by the room, readable on the dark floor. */
+  background: color-mix(in srgb, var(--room-tint) 80%, #000 25%);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   font-family: ui-monospace, Consolas, monospace;
   letter-spacing: 0.02em;
   pointer-events: none;
@@ -1034,10 +1050,11 @@ html, body {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 10px;
-  color: var(--text-dim);
+  color: #f3efe6;                                   /* readable on dark floors */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
   font-family: ui-monospace, Consolas, monospace;
 }
-.agent.active .agent-name { color: var(--text); }
+.agent.active .agent-name { color: #fff; font-weight: 600; }
 /* Active agents gently bob (uses `translate`, not `transform`, so it composes
    with the face-left scaleX). Walking's step-bob takes over while moving. */
 .agent.active:not(.walking) .agent-figure { animation: agent-bob 1.6s ease-in-out infinite; }

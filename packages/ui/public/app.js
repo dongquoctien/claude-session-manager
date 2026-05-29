@@ -1344,9 +1344,33 @@ const Office = (() => {
       // Center the desk against the back wall of the room.
       desk.style.cssText = `left:${room.w / 2 - 40}px;top:8px`;
       el2.appendChild(desk);
+      // Props: a chair below the desk + a potted plant in a corner.
+      const chair = propSvg('chair');
+      chair.style.cssText = `left:${room.w / 2 - 14}px;top:54px`;
+      el2.appendChild(chair);
+      const plant = propSvg('plant');
+      plant.style.cssText = `left:${room.w - 34}px;top:${room.h - 40}px`;
+      el2.appendChild(plant);
       $floor.appendChild(el2);
     }
     fitFloor();
+  }
+
+  /** Small decorative props (no semantic meaning, just to furnish the room). */
+  function propSvg(kind) {
+    if (kind === 'chair') {
+      const g = svgEl('svg', { viewBox: '0 0 28 28', class: 'desk', width: 28, height: 28 });
+      g.appendChild(svgEl('rect', { x: 6, y: 4, width: 16, height: 5, rx: 2, fill: '#8d6a4a' }));   // backrest
+      g.appendChild(svgEl('rect', { x: 6, y: 12, width: 16, height: 5, rx: 2, fill: '#a07a52' }));  // seat
+      g.appendChild(svgEl('rect', { x: 8, y: 17, width: 3, height: 7, fill: '#6b4f36' }));
+      g.appendChild(svgEl('rect', { x: 17, y: 17, width: 3, height: 7, fill: '#6b4f36' }));
+      return g;
+    }
+    // plant
+    const g = svgEl('svg', { viewBox: '0 0 28 32', class: 'desk', width: 28, height: 32 });
+    g.appendChild(svgEl('path', { d: 'M14 18c-7 0-10-7-10-13 6 0 10 5 10 13zM14 18c7 0 10-7 10-13-6 0-10 5-10 13z', fill: '#5fae8c' }));
+    g.appendChild(svgEl('path', { d: 'M8 18h12l-2 10H10z', fill: '#b06a4a' }));
+    return g;
   }
 
   /** Scale the fixed world down to fit the available width. */
