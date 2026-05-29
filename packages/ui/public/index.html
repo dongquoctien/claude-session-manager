@@ -149,6 +149,9 @@
     <button class="tab" data-tab="monitor" role="tab" aria-selected="false">
       <svg class="icon" viewBox="0 0 24 24"><use href="#i-activity"/></svg> Monitor
     </button>
+    <button class="tab" data-tab="office" role="tab" aria-selected="false">
+      <svg class="icon" viewBox="0 0 24 24"><use href="#i-gauge"/></svg> Office
+    </button>
   </nav>
 
   <section id="view-sessions" class="view">
@@ -272,6 +275,25 @@
         </div>
       </div>
     </div>
+  </section>
+
+  <section id="view-office" class="view" hidden>
+    <div class="office-head">
+      <span id="office-count" class="office-count" aria-live="polite">0 agents</span>
+      <span class="office-hint">Each agent is a session; it moves to the room matching what it's doing.</span>
+    </div>
+    <div id="office-grid" class="office">
+      <div class="room" data-activity="thinking"><span class="room-label">Thinking</span><div class="room-floor"></div></div>
+      <div class="room" data-activity="reading"><span class="room-label">Reading</span><div class="room-floor"></div></div>
+      <div class="room" data-activity="writing"><span class="room-label">Coding</span><div class="room-floor"></div></div>
+      <div class="room" data-activity="running"><span class="room-label">Running</span><div class="room-floor"></div></div>
+      <div class="room" data-activity="searching"><span class="room-label">Searching</span><div class="room-floor"></div></div>
+      <div class="room" data-activity="browsing"><span class="room-label">Browsing</span><div class="room-floor"></div></div>
+      <div class="room" data-activity="spawning"><span class="room-label">Spawning</span><div class="room-floor"></div></div>
+      <div class="room" data-activity="waiting"><span class="room-label">Waiting</span><div class="room-floor"></div></div>
+      <div class="room" data-activity="idle"><span class="room-label">Idle</span><div class="room-floor"></div></div>
+    </div>
+    <div id="office-empty" class="empty" hidden>No agents yet.</div>
   </section>
 
   <div id="toast" class="toast" role="status"></div>

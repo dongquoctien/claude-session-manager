@@ -926,3 +926,108 @@ html, body {
 .sk-w80 { width: 80%; }
 .sk-w90 { width: 90%; }
 .skeleton-card { cursor: default; pointer-events: none; }
+
+/* --- office view --- */
+.office-head { display: flex; align-items: baseline; gap: 12px; padding: 12px 18px 0; flex-wrap: wrap; }
+.office-count { font-weight: 600; }
+.office-hint { color: var(--text-dim); font-size: 12px; }
+.office {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding: 14px 18px 40px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.room {
+  display: flex;
+  flex-direction: column;
+  min-height: 150px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.room-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-family: ui-monospace, Consolas, monospace;
+}
+/* Tint each room subtly by the kind of work it represents. */
+.room[data-activity="writing"] .room-label { color: var(--accent); }
+.room[data-activity="reading"] .room-label,
+.room[data-activity="searching"] .room-label,
+.room[data-activity="browsing"] .room-label { color: var(--magenta); }
+.room[data-activity="running"] .room-label,
+.room[data-activity="spawning"] .room-label { color: var(--ok); }
+.room[data-activity="thinking"] .room-label { color: var(--warn); }
+.room-floor {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 8px;
+  padding: 10px;
+}
+
+/* Agent avatar: a labeled dot. It slides as it's re-parented between rooms. */
+.agent {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-row);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 3px 9px 3px 6px;
+  font-size: 12px;
+  max-width: 100%;
+  transition: transform 0.25s ease, box-shadow 0.2s;
+  animation: agent-pop 0.2s ease;
+}
+@keyframes agent-pop { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.agent-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--text-dim); }
+.agent-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; font-family: ui-monospace, Consolas, monospace; }
+.agent.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.agent.active .agent-dot { animation: agent-pulse 1.4s ease-in-out infinite; }
+@keyframes agent-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* Thinking bubble — shown on hover so it never covers the room labels. */
+.bubble {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 4;
+  max-width: 240px;
+  width: max-content;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 11px;
+  color: var(--text);
+  line-height: 1.35;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.bubble::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 12px;
+  border: 5px solid transparent;
+  border-top-color: var(--border);
+}
+/* A small dot marks agents that have something to say; hover to read it. */
+.agent.has-bubble .agent-dot { box-shadow: 0 0 0 2px var(--bg-elev), 0 0 0 3px var(--text-dim); }
+.agent:hover { z-index: 5; }            /* lift hovered agent above siblings */
+.agent:hover .bubble { opacity: 1; }    /* reveal its bubble */
+
+@media (max-width: 860px) {
+  .office { grid-template-columns: repeat(2, 1fr); }
+}

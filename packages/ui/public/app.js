@@ -822,6 +822,7 @@ const Monitor = (() => {
         renderModelBreakdown(data.systemStats && data.systemStats.byModel);
         if (!selectedId && latest.length) selectedId = (visibleSessions()[0] || latest[0]).id;
         renderDetail(currentSession());
+        Office.update(latest); // Office shares this stream (no second EventSource)
       } catch { /* ignore malformed frame */ }
     });
     es.addEventListener('error', () => {
@@ -1183,6 +1184,111 @@ const Monitor = (() => {
   return { start, redraw };
 })();
 
+// --- office view ----------------------------------------------------------
+// A playful "office": each session is an avatar that moves to the room matching
+// its current activity. Shares the Monitor SSE stream (Office.update is called
+// from the snapshot handler) — no second EventSource. Activity → room is a
+// direct map of the core-derived `activity` state; the avatar is plain SVG/CSS
+// (no game engine) and slides between rooms via a CSS transition.
+
+const Office = (() => {
+  const $grid = document.getElementById('office-grid');
+  const $count = document.getElementById('office-count');
+  const $empty = document.getElementById('office-empty');
+  const rooms = new Map(); // activity -> .room element
+  const agents = new Map(); // session id -> { node, room }
+  let started = false;
+
+  for (const room of $grid ? $grid.querySelectorAll('.room') : []) {
+    rooms.set(room.dataset.activity, room);
+  }
+
+  function roomFor(activity) {
+    return rooms.get(activity) || rooms.get('idle');
+  }
+  function shortName(s) {
+    if (s.cwd) return s.cwd.replace(/[\\/]+$/, '').replace(/^.*[\\/]/, '') || s.projectLabel;
+    return s.projectLabel || s.id.slice(0, 8);
+  }
+  function activityColor(activity) {
+    const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim() || '#888';
+    switch (activity) {
+      case 'writing': return css('--accent');
+      case 'reading': case 'searching': case 'browsing': return css('--magenta');
+      case 'running': case 'spawning': return css('--ok');
+      case 'thinking': return css('--warn');
+      default: return css('--text-dim'); // idle / waiting
+    }
+  }
+  function bubbleText(s) {
+    const msgs = s.recentMessages || [];
+    const last = msgs[msgs.length - 1];
+    if (!last || !last.text) return '';
+    const t = last.text.trim();
+    return t.length > 80 ? t.slice(0, 80) + '…' : t;
+  }
+
+  /** Build an avatar node for a session. */
+  function makeAgent(s) {
+    const node = el('div', 'agent');
+    node.dataset.id = s.id;
+    const dot = el('span', 'agent-dot');
+    node.appendChild(dot);
+    node.appendChild(el('span', 'agent-name', shortName(s)));
+    node.appendChild(el('div', 'bubble'));
+    return node;
+  }
+
+  /** Reconcile avatars with the latest snapshot. */
+  function update(sessions) {
+    if (!$grid) return;
+    const seen = new Set();
+    for (const s of sessions) {
+      seen.add(s.id);
+      let entry = agents.get(s.id);
+      if (!entry) {
+        const node = makeAgent(s);
+        entry = { node, room: null };
+        agents.set(s.id, entry);
+      }
+      const target = roomFor(s.activity);
+      if (target && entry.room !== target) {
+        target.querySelector('.room-floor').appendChild(entry.node);
+        entry.room = target;
+      }
+      // Color + active state + bubble.
+      entry.node.querySelector('.agent-dot').style.background = activityColor(s.activity);
+      entry.node.classList.toggle('active', !!s.active);
+      const bubble = entry.node.querySelector('.bubble');
+      const text = bubbleText(s);
+      bubble.textContent = text;
+      entry.node.classList.toggle('has-bubble', !!text); // hover to reveal
+
+    }
+    // Drop avatars whose session vanished from the snapshot.
+    for (const [id, entry] of agents) {
+      if (!seen.has(id)) { entry.node.remove(); agents.delete(id); }
+    }
+    const n = agents.size;
+    $count.textContent = `${n} agent${n === 1 ? '' : 's'}`;
+    $empty.hidden = n > 0;
+  }
+
+  function start() {
+    if (started) return;
+    started = true;
+    // Recolor avatars on theme switch (they use CSS-var-derived inline colors).
+  }
+  function redraw() {
+    for (const [, entry] of agents) {
+      const act = entry.room ? entry.room.dataset.activity : 'idle';
+      entry.node.querySelector('.agent-dot').style.background = activityColor(act);
+    }
+  }
+
+  return { start, update, redraw };
+})();
+
 // --- keep --topbar-h in sync (header wraps to 2 rows when narrow) ---------
 
 const $topbar = document.querySelector('.topbar');
@@ -1208,6 +1314,7 @@ $themeToggle.addEventListener('click', () => {
   try { localStorage.setItem('csm-theme', light ? 'dark' : 'light'); } catch (e) {}
   // The chart paints to a canvas, so CSS vars don't restyle it — redraw it.
   Monitor.redraw();
+  Office.redraw(); // avatars use CSS-var-derived inline colors
 });
 
 // --- tab switching --------------------------------------------------------
@@ -1216,12 +1323,15 @@ const $tabs = [...document.querySelectorAll('.tab')];
 const $views = {
   sessions: document.getElementById('view-sessions'),
   monitor: document.getElementById('view-monitor'),
+  office: document.getElementById('view-office'),
 };
 
 function switchTab(name) {
   for (const t of $tabs) t.setAttribute('aria-selected', String(t.dataset.tab === name));
   for (const [k, v] of Object.entries($views)) v.hidden = k !== name;
-  if (name === 'monitor') Monitor.start();
+  // Office shares the Monitor SSE stream, so opening either starts it.
+  if (name === 'monitor' || name === 'office') Monitor.start();
+  if (name === 'office') Office.start();
 }
 
 for (const t of $tabs) t.addEventListener('click', () => switchTab(t.dataset.tab));
