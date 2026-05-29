@@ -195,6 +195,33 @@
   <section id="view-monitor" class="view" hidden>
     <div class="monitor">
       <aside class="mon-sidebar">
+        <div class="mon-filterbar">
+          <div class="mon-search">
+            <svg class="icon search-icon" viewBox="0 0 24 24"><use href="#i-search"/></svg>
+            <input id="mon-search" type="search" placeholder="Filter sessions…" autocomplete="off" />
+          </div>
+          <div class="mon-filterbar-row">
+            <button type="button" class="chip" id="mon-active-toggle" aria-pressed="false">
+              <svg class="icon" viewBox="0 0 24 24"><use href="#i-activity"/></svg> Active only
+            </button>
+            <div id="mon-sort-dd" class="dropdown">
+              <button type="button" class="chip dropdown-trigger" id="mon-sort-trigger"
+                      aria-haspopup="listbox" aria-expanded="false">
+                <span class="dropdown-label" id="mon-sort-label">Recent</span>
+                <svg class="icon dropdown-caret" viewBox="0 0 24 24"><use href="#i-chevron-down"/></svg>
+              </button>
+              <ul class="dropdown-menu" id="mon-sort-menu" role="listbox" hidden></ul>
+            </div>
+            <div id="mon-model-dd" class="dropdown">
+              <button type="button" class="chip dropdown-trigger" id="mon-model-trigger"
+                      aria-haspopup="listbox" aria-expanded="false">
+                <span class="dropdown-label" id="mon-model-label">All models</span>
+                <svg class="icon dropdown-caret" viewBox="0 0 24 24"><use href="#i-chevron-down"/></svg>
+              </button>
+              <ul class="dropdown-menu" id="mon-model-menu" role="listbox" hidden></ul>
+            </div>
+          </div>
+        </div>
         <div id="mon-session-list" class="mon-session-list" aria-live="polite"></div>
         <div class="mon-sysstats">
           <h3><svg class="icon" viewBox="0 0 24 24"><use href="#i-gauge"/></svg> System Stats</h3>

@@ -5,7 +5,7 @@ import { projectsDir, slugToLabel } from './paths.js';
 import { parseHead } from './parser.js';
 import { resolveTitle } from './title.js';
 import { favoriteSet } from './state.js';
-import { MetricsCache, resolveActivity, isActive } from './metrics.js';
+import { MetricsCache, resolveActivity, isActive, bucketTokenSeries } from './metrics.js';
 
 /**
  * @typedef {Object} Session
@@ -210,6 +210,22 @@ export async function scanMetrics(opts = {}) {
   });
 
   return { sessions, systemStats: computeSystemStats(sessions) };
+}
+
+/**
+ * Tokens-over-time chart data for ONE conversation file, bucketed server-side
+ * (so the live snapshot stays small — we never ship raw per-entry series to the
+ * client). Reuses the shared incremental metrics cache.
+ * @param {string} file  absolute path to the .jsonl
+ * @param {Object} [opts]
+ * @param {number} [opts.buckets=32]
+ * @param {MetricsCache} [opts.cache]
+ * @returns {Promise<{ ts: number[], tokens: number[] }>}
+ */
+export async function sessionTokenChart(file, opts = {}) {
+  const cache = opts.cache || sharedMetricsCache;
+  const m = await cache.get(file);
+  return bucketTokenSeries(m.tokenSeries, opts.buckets || 32);
 }
 
 /**

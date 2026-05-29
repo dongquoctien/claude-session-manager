@@ -6,6 +6,7 @@ import path from 'node:path';
 import {
   scanSessions,
   scanMetrics,
+  sessionTokenChart,
   searchSessions,
   filterSessions,
   findSession,
@@ -97,7 +98,10 @@ export function createServer(opts = {}) {
             error: ambiguous.length ? 'ambiguous id' : 'unknown id',
           });
         }
-        return send(res, 200, { session: match });
+        // tokenBuckets: tokens-over-time for this one session's chart, bucketed
+        // server-side so the (broadcast) /api/stream snapshot stays small.
+        const tokenBuckets = await sessionTokenChart(match.file);
+        return send(res, 200, { session: { ...match, tokenBuckets } });
       }
 
       if (req.method === 'GET' && url.pathname === '/api/sessions') {

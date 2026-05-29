@@ -762,7 +762,7 @@ html, body {
    instead of a tiny nested scroller fighting the page scroll. */
 .monitor { display: flex; gap: 16px; padding: 16px 18px; align-items: flex-start; }
 .mon-sidebar {
-  width: 280px;
+  width: 320px;
   flex: none;
   display: flex;
   flex-direction: column;
@@ -772,6 +772,34 @@ html, body {
   max-height: calc(100vh - var(--topbar-h) - 57px);
 }
 .mon-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+
+/* Sidebar filter/sort controls (search + active chip + sort/model dropdowns). */
+.mon-filterbar { display: flex; flex-direction: column; gap: 8px; flex: none; }
+.mon-search { position: relative; }
+.mon-search .search-icon {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+.mon-search input {
+  width: 100%;
+  padding: 6px 10px 6px 30px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.mon-search input:focus { border-color: var(--accent); }
+.mon-filterbar-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.mon-filterbar-row .chip { font-size: 12px; padding: 3px 10px; }
 
 /* Session cards in the sidebar — flexes to fill remaining sidebar height. */
 .mon-session-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; flex: 1; padding-right: 2px; }

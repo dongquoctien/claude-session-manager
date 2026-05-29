@@ -9,6 +9,7 @@ import {
   estimateCost,
   toolActivity,
   isActive,
+  bucketTokenSeries,
   MetricsCache,
   Activity,
   Status,
@@ -229,4 +230,77 @@ test('cacheRead hit-rate inputs are summed correctly', async () => {
   // hit-rate = cacheRead / (cacheRead + input)
   const rate = metrics.tokens.cacheRead / (metrics.tokens.cacheRead + metrics.tokens.input);
   assert.ok(rate > 0.99, `expected >0.99, got ${rate}`);
+});
+
+// --- tokenSeries + bucketTokenSeries (Monitor chart) -----------------------
+
+test('records a per-entry tokenSeries point for each usage-bearing entry', async () => {
+  const file = writeJsonl([
+    { type: 'user', timestamp: ISO('2026-05-19T10:00:00Z'), message: { role: 'user', content: 'hi' } },
+    {
+      type: 'assistant', timestamp: ISO('2026-05-19T10:00:02Z'),
+      message: { role: 'assistant', model: 'claude-opus-4-7', content: [{ type: 'text', text: 'a' }],
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 100 } },
+    },
+    {
+      type: 'assistant', timestamp: ISO('2026-05-19T10:05:00Z'),
+      message: { role: 'assistant', model: 'claude-opus-4-7', content: [{ type: 'text', text: 'b' }],
+        usage: { input_tokens: 20, output_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
+    },
+  ]);
+  const { metrics } = await parseMetrics(file);
+  assert.equal(metrics.tokenSeries.length, 2, 'only the 2 usage entries are recorded');
+  assert.equal(metrics.tokenSeries[0].tokens, 115); // 10+5+0+100
+  assert.equal(metrics.tokenSeries[1].tokens, 30);  // 20+10
+  // sum of series == grand total tokens
+  const seriesTotal = metrics.tokenSeries.reduce((n, p) => n + p.tokens, 0);
+  const grand = metrics.tokens.input + metrics.tokens.output + metrics.tokens.cacheCreation + metrics.tokens.cacheRead;
+  assert.equal(seriesTotal, grand);
+});
+
+test('incremental pass does not mutate the cached tokenSeries', async () => {
+  const file = writeJsonl([
+    {
+      type: 'assistant', timestamp: ISO('2026-05-19T10:00:00Z'),
+      message: { role: 'assistant', model: 'claude-opus-4-7', content: [{ type: 'text', text: 'a' }],
+        usage: { input_tokens: 10, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
+    },
+  ]);
+  const cache = new MetricsCache();
+  const m1 = await cache.get(file);
+  const len1 = m1.tokenSeries.length;
+  // append a new usage entry, then re-read incrementally
+  appendJsonl(file, [
+    {
+      type: 'assistant', timestamp: ISO('2026-05-19T10:01:00Z'),
+      message: { role: 'assistant', model: 'claude-opus-4-7', content: [{ type: 'text', text: 'b' }],
+        usage: { input_tokens: 7, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
+    },
+  ]);
+  const m2 = await cache.get(file);
+  // the first snapshot must NOT have grown (no shared-array mutation)
+  assert.equal(m1.tokenSeries.length, len1, 'old snapshot tokenSeries must be untouched');
+  assert.equal(m2.tokenSeries.length, len1 + 1);
+});
+
+test('bucketTokenSeries sums tokens into fixed time bins', () => {
+  const base = Date.parse('2026-05-19T10:00:00Z');
+  const series = [
+    { ts: base, tokens: 100 },
+    { ts: base + 1000, tokens: 50 },     // same early region
+    { ts: base + 60_000, tokens: 200 },  // last point
+  ];
+  const { ts, tokens } = bucketTokenSeries(series, 4);
+  assert.equal(ts.length, 4);
+  assert.equal(tokens.length, 4);
+  // total preserved
+  assert.equal(tokens.reduce((a, b) => a + b, 0), 350);
+  // first two points fall in the first bin, the last in the final bin
+  assert.equal(tokens[0], 150);
+  assert.equal(tokens[3], 200);
+});
+
+test('bucketTokenSeries returns empty arrays for too-little data', () => {
+  assert.deepEqual(bucketTokenSeries([], 8), { ts: [], tokens: [] });
+  assert.deepEqual(bucketTokenSeries([{ ts: 1, tokens: 5 }], 8), { ts: [], tokens: [] });
 });
