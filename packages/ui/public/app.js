@@ -1228,22 +1228,38 @@ const Office = (() => {
     return t.length > 80 ? t.slice(0, 80) + '…' : t;
   }
 
-  /** Build an avatar node for a session. */
+  /** Truncate a name for the avatar label; full name lives in the title. */
+  function clipName(name, n = 12) {
+    return name.length > n ? name.slice(0, n - 1) + '…' : name;
+  }
+
+  /** Build an avatar node for a session: a round head + a name below it. */
   function makeAgent(s) {
+    const name = shortName(s);
     const node = el('div', 'agent');
     node.dataset.id = s.id;
-    const dot = el('span', 'agent-dot');
-    node.appendChild(dot);
-    node.appendChild(el('span', 'agent-name', shortName(s)));
+    node.title = name; // full name on hover
+    node.appendChild(el('span', 'agent-dot')); // the round "head"
+    node.appendChild(el('span', 'agent-name', clipName(name)));
     node.appendChild(el('div', 'bubble'));
     return node;
+  }
+
+  // The office shows agents that are *working*, not the full history. Keep
+  // sessions that are active or were touched within this window; the rest
+  // (old closed conversations) would just pile up in the Idle room.
+  const RECENT_MS = 30 * 60 * 1000; // 30 minutes
+  function isRecent(s, now) {
+    return s.active || (now - (s.mtime || 0) < RECENT_MS);
   }
 
   /** Reconcile avatars with the latest snapshot. */
   function update(sessions) {
     if (!$grid) return;
+    const now = Date.now();
+    const visible = sessions.filter((s) => isRecent(s, now));
     const seen = new Set();
-    for (const s of sessions) {
+    for (const s of visible) {
       seen.add(s.id);
       let entry = agents.get(s.id);
       if (!entry) {

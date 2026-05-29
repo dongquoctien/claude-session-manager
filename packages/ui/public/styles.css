@@ -942,7 +942,9 @@ html, body {
 .room {
   display: flex;
   flex-direction: column;
-  min-height: 150px;
+  /* Fixed height so a busy room scrolls internally instead of stretching the
+     whole grid (one crowded room used to make the page enormous). */
+  height: 190px;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -966,34 +968,51 @@ html, body {
 .room[data-activity="thinking"] .room-label { color: var(--warn); }
 .room-floor {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;          /* crowded rooms scroll internally */
   display: flex;
   flex-wrap: wrap;
   align-content: flex-start;
-  gap: 8px;
+  gap: 10px 6px;
   padding: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 
-/* Agent avatar: a labeled dot. It slides as it's re-parented between rooms. */
+/* Agent avatar: a round "head" with a name below — a tiny character. It slides
+   as it's re-parented between rooms (CSS transition + pop-in). */
 .agent {
   position: relative;
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  background: var(--bg-row);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 3px 9px 3px 6px;
-  font-size: 12px;
-  max-width: 100%;
-  transition: transform 0.25s ease, box-shadow 0.2s;
+  gap: 3px;
+  width: 64px;
+  transition: transform 0.25s ease;
   animation: agent-pop 0.2s ease;
 }
-@keyframes agent-pop { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-.agent-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--text-dim); }
-.agent-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; font-family: ui-monospace, Consolas, monospace; }
-.agent.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.agent.active .agent-dot { animation: agent-pulse 1.4s ease-in-out infinite; }
-@keyframes agent-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+@keyframes agent-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.agent-dot {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  border: 2px solid var(--bg-elev);
+  box-shadow: 0 0 0 1px var(--border);
+}
+.agent-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: ui-monospace, Consolas, monospace;
+}
+.agent.active .agent-dot { box-shadow: 0 0 0 2px var(--accent); animation: agent-pulse 1.4s ease-in-out infinite; }
+.agent.active .agent-name { color: var(--text); }
+@keyframes agent-pulse { 0%, 100% { box-shadow: 0 0 0 2px var(--accent); } 50% { box-shadow: 0 0 0 4px var(--accent-dim); } }
 
 /* Thinking bubble — shown on hover so it never covers the room labels. */
 .bubble {
