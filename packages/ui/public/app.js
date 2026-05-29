@@ -1199,17 +1199,20 @@ const Office = (() => {
   let started = false;
   let built = false;
 
-  // --- floor plan: a fixed "world" of rooms around a cross-shaped hallway ----
-  // World is 1000x640; rooms sit in a 3x3 grid but leave hallway gutters between
-  // them so avatars can walk along the corridors. Coords are in world px.
-  const WORLD_W = 1000, WORLD_H = 640;
+  // --- floor plan: a 3x3 grid of rooms separated by real hallway lanes -------
+  // The hallway is the empty band between rooms (HALL_W wide). Avatars only ever
+  // travel along the lane centre-lines, entering/leaving each room by its single
+  // door on the hallway-facing edge — so paths never cut through a room.
+  const PAD = 16;                  // outer margin
   const RW = 286, RH = 178;        // room size
-  const GX = 71, GY = 33;          // gutter (hallway) offsets between columns/rows
-  const COLX = [16, 16 + RW + GX, 16 + 2 * (RW + GX)];        // 3 column lefts
-  const ROWY = [16, 16 + RH + GY, 16 + 2 * (RH + GY)];        // 3 row tops
-  // Hallway centre-lines (between the room bands).
-  const HX = [COLX[1] - GX / 2, COLX[2] - GX / 2];            // vertical corridors
-  const HY = [ROWY[1] - GY / 2, ROWY[2] - GY / 2];            // horizontal corridors
+  const HALL_W = 52;               // hallway lane width (visible + walkable)
+  const WORLD_W = PAD * 2 + RW * 3 + HALL_W * 2;     // 1000
+  const WORLD_H = PAD * 2 + RH * 3 + HALL_W * 2;     // 696
+  const COLX = [PAD, PAD + RW + HALL_W, PAD + 2 * (RW + HALL_W)]; // room lefts
+  const ROWY = [PAD, PAD + RH + HALL_W, PAD + 2 * (RH + HALL_W)]; // room tops
+  // Lane centre-lines: 2 vertical (between cols), 2 horizontal (between rows).
+  const LANE_X = [COLX[1] - HALL_W / 2, COLX[2] - HALL_W / 2];
+  const LANE_Y = [ROWY[1] - HALL_W / 2, ROWY[2] - HALL_W / 2];
 
   // 9 activities placed on the 3x3 grid (row-major).
   const LAYOUT = [
@@ -1222,24 +1225,30 @@ const Office = (() => {
     running: 'Running', searching: 'Searching', browsing: 'Browsing',
     spawning: 'Spawning', waiting: 'Waiting', idle: 'Idle',
   };
+  const nearest = (v, arr) => arr.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a), arr[0]);
 
-  /** @type {Map<string,{activity,x,y,w,h,door:{x,y},slots:{x,y}[]}>} */
+  /** @type {Map<string,{activity,r,c,x,y,w,h,door,laneY,laneX,slots}>} */
   const ROOMS = new Map();
   (function defineRooms() {
     for (let r = 0; r < 3; r++) {
       for (let c = 0; c < 3; c++) {
         const activity = LAYOUT[r][c];
         const x = COLX[c], y = ROWY[r];
-        // Door on the hallway-facing edge: bottom for top rows, top for bottom row.
-        const doorY = r < 2 ? y + RH : y;
-        const door = { x: x + RW / 2, y: doorY };
+        // Door on the edge that faces the room's nearest horizontal hallway:
+        // top rows exit downward, the bottom row exits upward.
+        const exitDown = r < 2;
+        const doorY = exitDown ? y + RH : y;          // on the room wall
+        const laneY = exitDown ? LANE_Y[r] : LANE_Y[r - 1]; // the lane just outside that door
+        const door = { x: x + RW / 2, y: doorY, lane: laneY };
+        // The vertical lane this column drains into (for cross-column travel).
+        const laneX = nearest(x + RW / 2, LANE_X);
         // Standing slots near the desk (desk sits along the back/top wall).
         const slots = [];
         const cols = 4, sx = x + 40, sy = y + RH - 34, gap = (RW - 80) / (cols - 1);
         for (let i = 0; i < 8; i++) {
           slots.push({ x: sx + (i % cols) * gap, y: sy - Math.floor(i / cols) * 40 });
         }
-        ROOMS.set(activity, { activity, x, y, w: RW, h: RH, door, slots });
+        ROOMS.set(activity, { activity, r, c, x, y, w: RW, h: RH, door, laneY, laneX, slots });
       }
     }
   })();
@@ -1329,16 +1338,31 @@ const Office = (() => {
     return g;
   }
 
-  /** Build the static floor once: rooms + labels + furniture. */
+  /** Build the static floor once: hallway lanes + rooms + furniture. */
   function buildFloor() {
     if (built || !$floor) return;
     built = true;
     $floor.style.setProperty('--floor-w', WORLD_W + 'px');
     $floor.style.setProperty('--floor-h', WORLD_H + 'px');
+    // Visible hallway lanes (under the rooms): 2 vertical + 2 horizontal bands.
+    for (const cx of LANE_X) {
+      const lane = el('div', 'hallway hallway-v');
+      lane.style.cssText = `left:${cx - HALL_W / 2}px;top:0;width:${HALL_W}px;height:${WORLD_H}px`;
+      $floor.appendChild(lane);
+    }
+    for (const cy of LANE_Y) {
+      const lane = el('div', 'hallway hallway-h');
+      lane.style.cssText = `left:0;top:${cy - HALL_W / 2}px;width:${WORLD_W}px;height:${HALL_W}px`;
+      $floor.appendChild(lane);
+    }
     for (const room of ROOMS.values()) {
       const el2 = el('div', 'room');
       el2.dataset.activity = room.activity;
       el2.style.cssText = `left:${room.x}px;top:${room.y}px;width:${room.w}px;height:${room.h}px`;
+      // Door opening cut into the hallway-facing wall (matches route exit point).
+      const door = el('div', 'room-door ' + (room.door.y > room.y ? 'door-bottom' : 'door-top'));
+      door.style.left = (room.door.x - room.x - 22) + 'px';
+      el2.appendChild(door);
       el2.appendChild(el('span', 'room-label', LABELS[room.activity]));
       const desk = deskSvg(room.activity);
       // Center the desk against the back wall of the room.
@@ -1545,20 +1569,38 @@ const Office = (() => {
     entry.slot = null;
   }
 
-  // --- routing: walk via the hallway, not through walls ----------------------
-  /** Points from `from` to a target room's slot, hugging the corridors. */
-  function route(from, room, slot) {
-    const door = room.door;
-    // Nearest vertical corridor x and horizontal corridor y to travel along.
-    const corrX = HX.reduce((a, b) => (Math.abs(b - from.x) < Math.abs(a - from.x) ? b : a), HX[0]);
-    const corrY = HY.reduce((a, b) => (Math.abs(b - from.y) < Math.abs(a - from.y) ? b : a), HY[0]);
-    // from → out to a corridor → along to above/below the door → into the door → slot.
-    return [
-      { x: from.x, y: corrY },
-      { x: door.x, y: corrY },
-      { x: door.x, y: door.y },
-      { x: slot.x, y: slot.y },
-    ];
+  // --- routing: travel only along hallway lanes, never through a room --------
+  /**
+   * Path from the agent's current room to the target room's desk slot, staying
+   * on the hallway lanes the whole way:
+   *   slot(A) → A.door → A's lane → [turn onto a vertical lane] → B's lane →
+   *   B.door → slot(B).
+   * Each leg is axis-aligned and sits on a lane centre-line or a door axis, so
+   * the avatar never cuts across a room.
+   */
+  function route(fromRoom, toRoom, toSlot) {
+    const a = fromRoom.door, b = toRoom.door;
+    const pts = [];
+    // 1) leave room A: step out of the door onto A's horizontal lane.
+    pts.push({ x: a.x, y: a.lane });
+    if (fromRoom === toRoom) { pts.push({ x: toSlot.x, y: toSlot.y }); return pts; }
+    // 2) Whenever the two horizontal lanes differ (i.e. we change rows OR the
+    //    rooms drain to different lanes), move vertically ONLY on a vertical
+    //    lane (the gap between columns) — never along a room's centre, which
+    //    would cut through the room in between.
+    if (a.lane !== b.lane) {
+      const vx = nearest(b.x, LANE_X);            // vertical lane beside room B's column
+      pts.push({ x: vx, y: a.lane });             // ride A's lane to that vertical lane
+      pts.push({ x: vx, y: b.lane });             // travel the vertical lane to B's lane
+    }
+    // 3) along B's horizontal lane to directly outside B's door.
+    pts.push({ x: b.x, y: b.lane });
+    // 4) into room B through its door, then square off to the slot (door x →
+    //    slot y → slot x) so the final approach stays axis-aligned, not diagonal.
+    pts.push({ x: b.x, y: b.y });
+    pts.push({ x: b.x, y: toSlot.y });
+    pts.push({ x: toSlot.x, y: toSlot.y });
+    return pts;
   }
 
   /** Walk an agent through a list of points using chained CSS transitions. */
@@ -1614,14 +1656,16 @@ const Office = (() => {
       }
       const target = roomFor(s.activity);
       if (entry.room !== target) {
+        const fromRoom = entry.room;
         entry.room = target;
         const slot = takeSlot(target, entry);
-        if (fresh) {
-          // Appear at the room's door, then stroll to the desk.
-          placeAt(entry, target.door);
+        if (fresh || !fromRoom) {
+          // Appear at the target room's door, then stroll to the desk.
+          placeAt(entry, { x: target.door.x, y: target.door.y });
           walkTo(entry, [{ x: slot.x, y: slot.y }]);
         } else {
-          walkTo(entry, route({ x: entry.x, y: entry.y }, target, slot));
+          // Walk out of the old room and along the hallway lanes to the new one.
+          walkTo(entry, route(fromRoom, target, slot));
         }
       }
       // Re-draw the face only when active-ness flips (smile/eyes change).
