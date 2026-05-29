@@ -1192,19 +1192,60 @@ const Monitor = (() => {
 // (no game engine) and slides between rooms via a CSS transition.
 
 const Office = (() => {
-  const $grid = document.getElementById('office-grid');
+  const $floor = document.getElementById('office-floor');
   const $count = document.getElementById('office-count');
   const $empty = document.getElementById('office-empty');
-  const rooms = new Map(); // activity -> .room element
-  const agents = new Map(); // session id -> { node, room }
+  const agents = new Map(); // session id -> { node, room, x, y, queue, slot, ... }
   let started = false;
+  let built = false;
 
-  for (const room of $grid ? $grid.querySelectorAll('.room') : []) {
-    rooms.set(room.dataset.activity, room);
-  }
+  // --- floor plan: a fixed "world" of rooms around a cross-shaped hallway ----
+  // World is 1000x640; rooms sit in a 3x3 grid but leave hallway gutters between
+  // them so avatars can walk along the corridors. Coords are in world px.
+  const WORLD_W = 1000, WORLD_H = 640;
+  const RW = 286, RH = 178;        // room size
+  const GX = 71, GY = 33;          // gutter (hallway) offsets between columns/rows
+  const COLX = [16, 16 + RW + GX, 16 + 2 * (RW + GX)];        // 3 column lefts
+  const ROWY = [16, 16 + RH + GY, 16 + 2 * (RH + GY)];        // 3 row tops
+  // Hallway centre-lines (between the room bands).
+  const HX = [COLX[1] - GX / 2, COLX[2] - GX / 2];            // vertical corridors
+  const HY = [ROWY[1] - GY / 2, ROWY[2] - GY / 2];            // horizontal corridors
+
+  // 9 activities placed on the 3x3 grid (row-major).
+  const LAYOUT = [
+    ['thinking', 'reading', 'writing'],
+    ['running', 'searching', 'browsing'],
+    ['spawning', 'waiting', 'idle'],
+  ];
+  const LABELS = {
+    thinking: 'Thinking', reading: 'Reading', writing: 'Coding',
+    running: 'Running', searching: 'Searching', browsing: 'Browsing',
+    spawning: 'Spawning', waiting: 'Waiting', idle: 'Idle',
+  };
+
+  /** @type {Map<string,{activity,x,y,w,h,door:{x,y},slots:{x,y}[]}>} */
+  const ROOMS = new Map();
+  (function defineRooms() {
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 3; c++) {
+        const activity = LAYOUT[r][c];
+        const x = COLX[c], y = ROWY[r];
+        // Door on the hallway-facing edge: bottom for top rows, top for bottom row.
+        const doorY = r < 2 ? y + RH : y;
+        const door = { x: x + RW / 2, y: doorY };
+        // Standing slots near the desk (desk sits along the back/top wall).
+        const slots = [];
+        const cols = 4, sx = x + 40, sy = y + RH - 34, gap = (RW - 80) / (cols - 1);
+        for (let i = 0; i < 8; i++) {
+          slots.push({ x: sx + (i % cols) * gap, y: sy - Math.floor(i / cols) * 40 });
+        }
+        ROOMS.set(activity, { activity, x, y, w: RW, h: RH, door, slots });
+      }
+    }
+  })();
 
   function roomFor(activity) {
-    return rooms.get(activity) || rooms.get('idle');
+    return ROOMS.get(activity) || ROOMS.get('idle');
   }
   function shortName(s) {
     if (s.cwd) return s.cwd.replace(/[\\/]+$/, '').replace(/^.*[\\/]/, '') || s.projectLabel;
@@ -1231,6 +1272,91 @@ const Office = (() => {
   /** Truncate a name for the avatar label; full name lives in the title. */
   function clipName(name, n = 12) {
     return name.length > n ? name.slice(0, n - 1) + '…' : name;
+  }
+
+  // --- floor + furniture ----------------------------------------------------
+
+  /** A desk/prop SVG per room kind, sized to sit against the room's back wall. */
+  function deskSvg(activity) {
+    const g = svgEl('svg', { viewBox: '0 0 80 48', class: 'desk', width: 80, height: 48 });
+    const desk = () => g.appendChild(svgEl('rect', { x: 6, y: 30, width: 68, height: 8, rx: 2, fill: '#8d6a4a' }));
+    const legs = () => { g.appendChild(svgEl('rect', { x: 10, y: 38, width: 4, height: 8, fill: '#6b4f36' })); g.appendChild(svgEl('rect', { x: 66, y: 38, width: 4, height: 8, fill: '#6b4f36' })); };
+    switch (activity) {
+      case 'writing': // monitor with code lines
+        desk(); legs();
+        g.appendChild(svgEl('rect', { x: 26, y: 8, width: 28, height: 20, rx: 2, fill: '#22303a' }));
+        g.appendChild(svgEl('rect', { x: 28, y: 10, width: 24, height: 16, fill: '#0f1720' }));
+        [13, 16, 19, 22].forEach((y, i) => g.appendChild(svgEl('rect', { x: 30, y, width: [14, 10, 16, 8][i], height: 1.6, class: 'desk-tint' })));
+        g.appendChild(svgEl('rect', { x: 36, y: 28, width: 8, height: 2, fill: '#22303a' }));
+        break;
+      case 'reading': // bookshelf
+        for (let i = 0; i < 6; i++) g.appendChild(svgEl('rect', { x: 8 + i * 11, y: 10 + (i % 2) * 2, width: 8, height: 28 - (i % 2) * 2, rx: 1, fill: ['#c25d6b', '#5b8def', '#5fae8c', '#e0a458', '#c08adb', '#8d6a4a'][i] }));
+        g.appendChild(svgEl('rect', { x: 4, y: 38, width: 72, height: 4, fill: '#6b4f36' }));
+        break;
+      case 'running': // terminal box
+        desk(); legs();
+        g.appendChild(svgEl('rect', { x: 24, y: 8, width: 32, height: 20, rx: 2, fill: '#0f1720' }));
+        g.appendChild(svgEl('path', { d: 'M28 13l4 3-4 3', fill: 'none', stroke: '#7fc8a0', 'stroke-width': 1.5 }));
+        g.appendChild(svgEl('rect', { x: 34, y: 19, width: 10, height: 1.6, fill: '#7fc8a0' }));
+        break;
+      case 'searching': // magnifier on desk
+        desk(); legs();
+        g.appendChild(svgEl('circle', { cx: 36, cy: 18, r: 8, fill: 'none', stroke: '#9a9286', 'stroke-width': 2.5 }));
+        g.appendChild(svgEl('path', { d: 'M42 24l6 6', stroke: '#9a9286', 'stroke-width': 3, 'stroke-linecap': 'round' }));
+        break;
+      case 'browsing': // globe
+        desk(); legs();
+        g.appendChild(svgEl('circle', { cx: 40, cy: 16, r: 10, fill: '#2a6f97' }));
+        g.appendChild(svgEl('path', { d: 'M30 16h20M40 6v20M33 9q7 7 0 14M47 9q-7 7 0 14', fill: 'none', stroke: '#7fc8a0', 'stroke-width': 1 }));
+        break;
+      case 'spawning': // portal
+        g.appendChild(svgEl('ellipse', { cx: 40, cy: 26, rx: 16, ry: 18, fill: 'none', stroke: '#7fc8a0', 'stroke-width': 2 }));
+        g.appendChild(svgEl('ellipse', { cx: 40, cy: 26, rx: 9, ry: 11, fill: 'none', stroke: '#7fc8a0', 'stroke-width': 1.5, opacity: 0.6 }));
+        break;
+      case 'thinking': // gear
+        g.appendChild(svgEl('circle', { cx: 40, cy: 22, r: 9, fill: 'none', stroke: '#e0a458', 'stroke-width': 3 }));
+        g.appendChild(svgEl('circle', { cx: 40, cy: 22, r: 3, fill: '#e0a458' }));
+        break;
+      case 'waiting': // clock
+        desk(); legs();
+        g.appendChild(svgEl('circle', { cx: 40, cy: 17, r: 9, fill: '#fff', stroke: '#9a9286', 'stroke-width': 1.5 }));
+        g.appendChild(svgEl('path', { d: 'M40 17v-5M40 17l4 2', stroke: '#2b2620', 'stroke-width': 1.4, 'stroke-linecap': 'round' }));
+        break;
+      default: // idle: a small plant
+        g.appendChild(svgEl('path', { d: 'M40 30c-6 0-9-6-9-12 5 0 9 4 9 12zM40 30c6 0 9-6 9-12-5 0-9 4-9 12z', fill: '#5fae8c' }));
+        g.appendChild(svgEl('path', { d: 'M34 30h12l-2 8H36z', fill: '#b06a4a' }));
+    }
+    return g;
+  }
+
+  /** Build the static floor once: rooms + labels + furniture. */
+  function buildFloor() {
+    if (built || !$floor) return;
+    built = true;
+    $floor.style.setProperty('--floor-w', WORLD_W + 'px');
+    $floor.style.setProperty('--floor-h', WORLD_H + 'px');
+    for (const room of ROOMS.values()) {
+      const el2 = el('div', 'room');
+      el2.dataset.activity = room.activity;
+      el2.style.cssText = `left:${room.x}px;top:${room.y}px;width:${room.w}px;height:${room.h}px`;
+      el2.appendChild(el('span', 'room-label', LABELS[room.activity]));
+      const desk = deskSvg(room.activity);
+      // Center the desk against the back wall of the room.
+      desk.style.cssText = `left:${room.w / 2 - 40}px;top:8px`;
+      el2.appendChild(desk);
+      $floor.appendChild(el2);
+    }
+    fitFloor();
+  }
+
+  /** Scale the fixed world down to fit the available width. */
+  function fitFloor() {
+    if (!$floor) return;
+    const avail = ($floor.parentElement.clientWidth || WORLD_W) - 4;
+    const scale = Math.min(1, avail / WORLD_W);
+    $floor.style.setProperty('--floor-scale', String(scale));
+    // The scaled element still reserves unscaled height; shrink the stage to match.
+    $floor.parentElement.style.height = (WORLD_H * scale + 4) + 'px';
   }
 
   // --- character avatars (deterministic-random per session id) -------------
@@ -1375,40 +1501,118 @@ const Office = (() => {
     return s.active || (now - (s.mtime || 0) < RECENT_MS);
   }
 
+  // --- slot manager: hand out non-overlapping standing spots per room -------
+  const occupied = new Map(); // activity -> Set of slot indices in use
+  function takeSlot(room, entry) {
+    if (entry.slot && entry.slot.room === room.activity) return entry.slot;
+    releaseSlot(entry);
+    let set = occupied.get(room.activity);
+    if (!set) { set = new Set(); occupied.set(room.activity, set); }
+    let idx = room.slots.findIndex((_, i) => !set.has(i));
+    if (idx < 0) idx = set.size % room.slots.length; // overflow: reuse (stack)
+    set.add(idx);
+    entry.slot = { room: room.activity, idx, ...room.slots[idx] };
+    return entry.slot;
+  }
+  function releaseSlot(entry) {
+    if (!entry.slot) return;
+    const set = occupied.get(entry.slot.room);
+    if (set) set.delete(entry.slot.idx);
+    entry.slot = null;
+  }
+
+  // --- routing: walk via the hallway, not through walls ----------------------
+  /** Points from `from` to a target room's slot, hugging the corridors. */
+  function route(from, room, slot) {
+    const door = room.door;
+    // Nearest vertical corridor x and horizontal corridor y to travel along.
+    const corrX = HX.reduce((a, b) => (Math.abs(b - from.x) < Math.abs(a - from.x) ? b : a), HX[0]);
+    const corrY = HY.reduce((a, b) => (Math.abs(b - from.y) < Math.abs(a - from.y) ? b : a), HY[0]);
+    // from → out to a corridor → along to above/below the door → into the door → slot.
+    return [
+      { x: from.x, y: corrY },
+      { x: door.x, y: corrY },
+      { x: door.x, y: door.y },
+      { x: slot.x, y: slot.y },
+    ];
+  }
+
+  /** Walk an agent through a list of points using chained CSS transitions. */
+  const SPEED = 0.18; // px per ms (~feels like walking)
+  function walkTo(entry, points) {
+    entry.queue = points.slice();
+    if (entry.walking) return; // already stepping; queue picked up on arrival
+    stepNext(entry);
+  }
+  function stepNext(entry) {
+    const next = entry.queue && entry.queue.shift();
+    if (!next) { entry.walking = false; entry.node.classList.remove('walking'); return; }
+    const dx = next.x - entry.x, dy = next.y - entry.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 1) { entry.x = next.x; entry.y = next.y; return stepNext(entry); }
+    entry.walking = true;
+    entry.node.classList.add('walking');
+    entry.node.classList.toggle('face-left', dx < -1);
+    const dur = reduceMotion ? 0 : Math.min(1400, Math.max(180, dist / SPEED));
+    entry.node.style.transitionDuration = dur + 'ms';
+    entry.x = next.x; entry.y = next.y;
+    entry.node.style.transform = `translate(${next.x}px,${next.y}px)`;
+    if (dur === 0) { stepNext(entry); return; }
+    clearTimeout(entry.stepTimer);
+    entry.stepTimer = setTimeout(() => stepNext(entry), dur + 30); // drive via timer (robust vs missed transitionend)
+  }
+  /** Place instantly (no walk) — for first appearance. */
+  function placeAt(entry, p) {
+    entry.x = p.x; entry.y = p.y;
+    entry.node.style.transitionDuration = '0ms';
+    entry.node.style.transform = `translate(${p.x}px,${p.y}px)`;
+  }
+
+  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   /** Reconcile avatars with the latest snapshot. */
   function update(sessions) {
-    if (!$grid) return;
+    if (!$floor) return;
+    buildFloor();
     const now = Date.now();
     const visible = sessions.filter((s) => isRecent(s, now));
     const seen = new Set();
     for (const s of visible) {
       seen.add(s.id);
       let entry = agents.get(s.id);
+      const fresh = !entry;
       if (!entry) {
         const node = makeAgent(s);
-        entry = { node, room: null, active: undefined };
+        node.classList.add('spawning-in');
+        $floor.appendChild(node);
+        entry = { node, room: null, active: undefined, x: 0, y: 0, queue: [], walking: false, slot: null };
         agents.set(s.id, entry);
       }
       const target = roomFor(s.activity);
-      if (target && entry.room !== target) {
-        target.querySelector('.room-floor').appendChild(entry.node);
+      if (entry.room !== target) {
         entry.room = target;
+        const slot = takeSlot(target, entry);
+        if (fresh) {
+          // Appear at the room's door, then stroll to the desk.
+          placeAt(entry, target.door);
+          walkTo(entry, [{ x: slot.x, y: slot.y }]);
+        } else {
+          walkTo(entry, route({ x: entry.x, y: entry.y }, target, slot));
+        }
       }
       // Re-draw the face only when active-ness flips (smile/eyes change).
       if (entry.active !== !!s.active) {
         entry.active = !!s.active;
         entry.node.replaceChild(makeAgentSvg(s, entry.active), entry.node.querySelector('.agent-figure'));
       }
-      // Tint the figure (shirt/body) by activity; keep the face readable.
       entry.node.style.setProperty('--agent-tint', activityColor(s.activity));
       entry.node.classList.toggle('active', !!s.active);
-      // Store the latest bubble text; the rotation loop decides who shows it.
       entry.text = bubbleText(s);
       entry.node.querySelector('.bubble').textContent = entry.text;
     }
     // Drop avatars whose session vanished from the snapshot.
     for (const [id, entry] of agents) {
-      if (!seen.has(id)) { entry.node.remove(); agents.delete(id); }
+      if (!seen.has(id)) { clearTimeout(entry.stepTimer); releaseSlot(entry); entry.node.remove(); agents.delete(id); }
     }
     const n = agents.size;
     $count.textContent = `${n} agent${n === 1 ? '' : 's'}`;
@@ -1416,22 +1620,18 @@ const Office = (() => {
     if (started) applyBubbles();
   }
 
-  // Decide which agents currently show their speech bubble. Active agents
-  // always do; the rest take turns (a sliding window) so bubbles don't all
-  // pile up at once. Called on a timer and after each snapshot.
+  // One bubble per room at a time (rotating) so bubbles never overlap.
   let rotateOffset = 0;
-  // Show at most ONE bubble per room at a time (rotating through that room's
-  // agents) so speech bubbles never overlap, even in a crowded room.
   function applyBubbles() {
-    const perRoom = new Map(); // room element -> agents that have something to say
+    const perRoom = new Map(); // activity -> agents that have something to say
     for (const [, entry] of agents) {
       entry.node.classList.remove('show-bubble');
       if (!entry.text || !entry.room) continue;
-      if (!perRoom.has(entry.room)) perRoom.set(entry.room, []);
-      perRoom.get(entry.room).push(entry);
+      const key = entry.room.activity;
+      if (!perRoom.has(key)) perRoom.set(key, []);
+      perRoom.get(key).push(entry);
     }
     for (const [, list] of perRoom) {
-      // Prefer an active agent in the room; otherwise rotate through the rest.
       const actives = list.filter((e) => e.active);
       const pickFrom = actives.length ? actives : list;
       pickFrom[rotateOffset % pickFrom.length].node.classList.add('show-bubble');
@@ -1442,14 +1642,16 @@ const Office = (() => {
   function start() {
     if (started) return;
     started = true;
+    buildFloor();
     applyBubbles();
     rotateTimer = setInterval(() => { rotateOffset++; applyBubbles(); }, 3000);
+    window.addEventListener('resize', fitFloor);
   }
   function redraw() {
-    // Theme changed: re-tint and rebuild faces with fresh palette-independent
-    // colors (skin/hair are fixed; only the activity tint uses CSS vars).
+    // Theme changed: re-tint avatars (rooms/desks use CSS vars and re-tint on
+    // their own).
     for (const [, entry] of agents) {
-      const act = entry.room ? entry.room.dataset.activity : 'idle';
+      const act = entry.room ? entry.room.activity : 'idle';
       entry.node.style.setProperty('--agent-tint', activityColor(act));
     }
   }
