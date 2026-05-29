@@ -1989,7 +1989,8 @@ const OfficeClassic = (() => {
 const Office = (() => {
   const $pro = document.getElementById('office-pro');
   const $classic = document.getElementById('office-classic');
-  const $switch = document.getElementById('office-mode');
+  const $seg = document.querySelector('.office-mode-seg');
+  const $segBtns = $seg ? [...$seg.querySelectorAll('.seg-btn')] : [];
   let mode = (() => { try { return localStorage.getItem('csm-office-mode') || 'pro'; } catch (e) { return 'pro'; } })();
   let latest = [];
   const renderer = () => (mode === 'classic' ? OfficeClassic : OfficePro);
@@ -1997,7 +1998,11 @@ const Office = (() => {
   function applyVisibility() {
     if ($pro) $pro.hidden = mode !== 'pro';
     if ($classic) $classic.hidden = mode !== 'classic';
-    if ($switch) $switch.checked = mode === 'pro';
+    for (const b of $segBtns) {
+      const on = b.dataset.mode === mode;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
+    }
   }
   function setMode(m) {
     if (m === mode) return;
@@ -2015,7 +2020,7 @@ const Office = (() => {
   function update(sessions) { latest = sessions; renderer().update(sessions); }
   function redraw() { renderer().redraw(); }
 
-  if ($switch) $switch.addEventListener('change', () => setMode($switch.checked ? 'pro' : 'classic'));
+  for (const b of $segBtns) b.addEventListener('click', () => setMode(b.dataset.mode));
 
   return { start, update, redraw, setMode };
 })();

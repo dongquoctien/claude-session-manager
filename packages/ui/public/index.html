@@ -281,13 +281,13 @@
     <div class="office-head">
       <span id="office-count" class="office-count" aria-live="polite">0 agents</span>
       <span class="office-hint">Each agent is a session; it moves to the room matching what it's doing.</span>
-      <!-- Switch between Classic (simple grid) and Pro (open-plan, walking). -->
-      <label class="switch office-mode-switch" title="Classic grid vs Pro open-plan office">
-        <span class="switch-label">Classic</span>
-        <input id="office-mode" type="checkbox" />
-        <span class="switch-track"><span class="switch-knob"></span></span>
-        <span class="switch-label">Pro</span>
-      </label>
+      <!-- Pick the office view: Classic (simple grid) or Pro (open-plan,
+           walking avatars). Two equal options, so a segmented control rather
+           than an on/off switch. -->
+      <div class="office-mode-seg seg" role="group" aria-label="Office view">
+        <button type="button" class="seg-btn" data-mode="classic" aria-pressed="false">Classic</button>
+        <button type="button" class="seg-btn" data-mode="pro" aria-pressed="true">Pro</button>
+      </div>
     </div>
 
     <!-- PRO: one shared floor plan; rooms + furniture + walking avatars are
