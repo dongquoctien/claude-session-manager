@@ -940,67 +940,73 @@ html, body {
   margin: 0 auto;
 }
 .room {
+  --room-tint: var(--text-dim);
   display: flex;
   flex-direction: column;
-  /* Fixed height so a busy room scrolls internally instead of stretching the
-     whole grid (one crowded room used to make the page enormous). */
-  height: 190px;
+  min-height: 170px;          /* grows with content — no internal scroll */
   background: var(--bg-elev);
   border: 1px solid var(--border);
+  border-top: 3px solid var(--room-tint);
   border-radius: var(--radius);
-  overflow: hidden;
+  /* No overflow:hidden — speech bubbles must be free to spill past the walls.
+     The rounded top corners are kept via the label's own background clip. */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
+/* Each room is tinted by the kind of work it represents (header + accents). */
+.room[data-activity="writing"] { --room-tint: var(--accent); }
+.room[data-activity="reading"],
+.room[data-activity="searching"],
+.room[data-activity="browsing"] { --room-tint: var(--magenta); }
+.room[data-activity="running"],
+.room[data-activity="spawning"] { --room-tint: var(--ok); }
+.room[data-activity="thinking"] { --room-tint: var(--warn); }
 .room-label {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-dim);
-  padding: 8px 10px;
+  color: var(--room-tint);
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 3px) calc(var(--radius) - 3px) 0 0;
   font-family: ui-monospace, Consolas, monospace;
+  letter-spacing: 0.02em;
 }
-/* Tint each room subtly by the kind of work it represents. */
-.room[data-activity="writing"] .room-label { color: var(--accent); }
-.room[data-activity="reading"] .room-label,
-.room[data-activity="searching"] .room-label,
-.room[data-activity="browsing"] .room-label { color: var(--magenta); }
-.room[data-activity="running"] .room-label,
-.room[data-activity="spawning"] .room-label { color: var(--ok); }
-.room[data-activity="thinking"] .room-label { color: var(--warn); }
 .room-floor {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;          /* crowded rooms scroll internally */
   display: flex;
   flex-wrap: wrap;
   align-content: flex-start;
-  gap: 10px 6px;
-  padding: 10px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  gap: 26px 10px;            /* roomy spacing so bubbles have air above heads */
+  padding: 22px 12px 12px;
+  border-radius: 0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px);
+  /* A subtle "floor": faint grid lines + a soft glow in the room's color. */
+  background:
+    radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--room-tint) 7%, transparent), transparent 70%),
+    repeating-linear-gradient(0deg, transparent 0 23px, color-mix(in srgb, var(--border) 45%, transparent) 23px 24px),
+    repeating-linear-gradient(90deg, transparent 0 23px, color-mix(in srgb, var(--border) 45%, transparent) 23px 24px);
 }
 
-/* Agent avatar: a round "head" with a name below — a tiny character. It slides
-   as it's re-parented between rooms (CSS transition + pop-in). */
+/* Agent avatar: a little SVG character with a name below. Slides between rooms
+   (re-parented in JS) and pops in when it first appears. */
 .agent {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
-  width: 64px;
+  gap: 2px;
+  width: 56px;
   transition: transform 0.25s ease;
-  animation: agent-pop 0.2s ease;
+  animation: agent-pop 0.22s ease;
 }
 @keyframes agent-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-.agent-dot {
-  flex: none;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: var(--text-dim);
-  border: 2px solid var(--bg-elev);
-  box-shadow: 0 0 0 1px var(--border);
+.agent-figure {
+  width: 40px;
+  height: 40px;
+  overflow: visible;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
 }
+/* The body/shoulders take the activity tint; the face keeps its drawn colors. */
+.agent-figure .fig-body { fill: var(--agent-tint, var(--text-dim)); }
 .agent-name {
   max-width: 100%;
   overflow: hidden;
@@ -1010,42 +1016,44 @@ html, body {
   color: var(--text-dim);
   font-family: ui-monospace, Consolas, monospace;
 }
-.agent.active .agent-dot { box-shadow: 0 0 0 2px var(--accent); animation: agent-pulse 1.4s ease-in-out infinite; }
 .agent.active .agent-name { color: var(--text); }
-@keyframes agent-pulse { 0%, 100% { box-shadow: 0 0 0 2px var(--accent); } 50% { box-shadow: 0 0 0 4px var(--accent-dim); } }
+/* Active agents gently bob so the eye is drawn to who's working. */
+.agent.active .agent-figure { animation: agent-bob 1.6s ease-in-out infinite; }
+@keyframes agent-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
 
-/* Thinking bubble — shown on hover so it never covers the room labels. */
+/* Speech bubble above the head — shown for a rotating subset (.show-bubble) so
+   they never all pile up. Active agents always show theirs. */
 .bubble {
   position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
   z-index: 4;
-  max-width: 240px;
+  max-width: 180px;
   width: max-content;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 5px 8px;
+  border-radius: 10px;
+  padding: 5px 9px;
   font-size: 11px;
   color: var(--text);
   line-height: 1.35;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.12s;
+  transition: opacity 0.2s, transform 0.2s;
 }
 .bubble::after {
   content: "";
   position: absolute;
   top: 100%;
-  left: 12px;
+  left: 50%;
+  margin-left: -5px;
   border: 5px solid transparent;
-  border-top-color: var(--border);
+  border-top-color: var(--bg);
 }
-/* A small dot marks agents that have something to say; hover to read it. */
-.agent.has-bubble .agent-dot { box-shadow: 0 0 0 2px var(--bg-elev), 0 0 0 3px var(--text-dim); }
-.agent:hover { z-index: 5; }            /* lift hovered agent above siblings */
-.agent:hover .bubble { opacity: 1; }    /* reveal its bubble */
+.agent.show-bubble { z-index: 5; }
+.agent.show-bubble .bubble { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 @media (max-width: 860px) {
   .office { grid-template-columns: repeat(2, 1fr); }

@@ -1233,13 +1233,81 @@ const Office = (() => {
     return name.length > n ? name.slice(0, n - 1) + '…' : name;
   }
 
-  /** Build an avatar node for a session: a round head + a name below it. */
+  // --- character avatars (deterministic-random per session id) -------------
+
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  function svgEl(tag, attrs) {
+    const n = document.createElementNS(SVGNS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+  /** Stable 32-bit-ish hash of a string so an agent always looks the same. */
+  function hashId(id) {
+    let h = 2166136261;
+    for (let i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return h >>> 0;
+  }
+  const SKIN = ['#f2c9a0', '#e8b088', '#d99a6c', '#c1855a', '#8d5a3c'];
+  const HAIR = ['#2b2620', '#5a3a22', '#8d5a3c', '#c08a4a', '#9a9286', '#3a3550'];
+  const HAT = ['#d97757', '#7fc8a0', '#c08adb', '#e0a458'];
+
+  /**
+   * Build a little character: head + eyes + mouth + hair, sometimes a hat.
+   * Every feature is derived from the id hash, so the same agent is consistent.
+   * @param {object} s session
+   * @param {boolean} active  smiling + open eyes when actively working
+   */
+  function makeAgentSvg(s, active) {
+    const h = hashId(s.id);
+    const pick = (arr, shift) => arr[(h >> shift) % arr.length];
+    const skin = pick(SKIN, 2);
+    const hair = pick(HAIR, 5);
+    const hairStyle = (h >> 9) % 4;     // 0 short, 1 side-part, 2 curly, 3 bald-ish
+    const hasHat = (h >> 13) % 10 < 3;  // ~30% wear a hat
+    const hat = pick(HAT, 17);
+
+    const svg = svgEl('svg', { viewBox: '0 0 40 40', class: 'agent-figure' });
+    // body/shoulders (tinted by activity via CSS class on the node, so leave neutral here)
+    svg.appendChild(svgEl('path', { d: 'M8 40c0-7 5-11 12-11s12 4 12 11', class: 'fig-body' }));
+    // head
+    svg.appendChild(svgEl('circle', { cx: 20, cy: 17, r: 11, fill: skin }));
+    // hair (skip if "bald-ish")
+    if (hairStyle !== 3) {
+      let d;
+      if (hairStyle === 0) d = 'M9 15a11 11 0 0 1 22 0c0-4-4-8-11-8S9 11 9 15z';          // short cap of hair
+      else if (hairStyle === 1) d = 'M9 16c0-7 6-9 11-9s11 2 11 9c-3-3-7-4-11-4-2 3-7 2-11 4z'; // side part
+      else d = 'M8 16a12 5 0 0 1 24 0a4 4 0 0 0-4-5a4 4 0 0 0-8 0a4 4 0 0 0-8 0a4 4 0 0 0-4 5z'; // curly
+      svg.appendChild(svgEl('path', { d, fill: hair }));
+    }
+    // hat over the hair
+    if (hasHat) {
+      svg.appendChild(svgEl('path', { d: 'M9 13h22l-2-4a10 10 0 0 0-18 0z', fill: hat }));
+      svg.appendChild(svgEl('rect', { x: 7, y: 12, width: 26, height: 2.4, rx: 1.2, fill: hat }));
+    }
+    // eyes
+    const eyeY = 17;
+    if (active) {
+      svg.appendChild(svgEl('circle', { cx: 16, cy: eyeY, r: 1.6, fill: '#2b2620' }));
+      svg.appendChild(svgEl('circle', { cx: 24, cy: eyeY, r: 1.6, fill: '#2b2620' }));
+    } else { // calmer, half-closed eyes when idle
+      svg.appendChild(svgEl('path', { d: `M14 ${eyeY}h4`, stroke: '#2b2620', 'stroke-width': 1.6, 'stroke-linecap': 'round' }));
+      svg.appendChild(svgEl('path', { d: `M22 ${eyeY}h4`, stroke: '#2b2620', 'stroke-width': 1.6, 'stroke-linecap': 'round' }));
+    }
+    // mouth: smile when active, flat when idle
+    svg.appendChild(svgEl('path', {
+      d: active ? 'M16 22q4 4 8 0' : 'M16 23h8',
+      fill: 'none', stroke: '#2b2620', 'stroke-width': 1.6, 'stroke-linecap': 'round',
+    }));
+    return svg;
+  }
+
+  /** Build an avatar node: a little character + a name below + a bubble. */
   function makeAgent(s) {
     const name = shortName(s);
     const node = el('div', 'agent');
     node.dataset.id = s.id;
     node.title = name; // full name on hover
-    node.appendChild(el('span', 'agent-dot')); // the round "head"
+    node.appendChild(makeAgentSvg(s, !!s.active));
     node.appendChild(el('span', 'agent-name', clipName(name)));
     node.appendChild(el('div', 'bubble'));
     return node;
@@ -1264,7 +1332,7 @@ const Office = (() => {
       let entry = agents.get(s.id);
       if (!entry) {
         const node = makeAgent(s);
-        entry = { node, room: null };
+        entry = { node, room: null, active: undefined };
         agents.set(s.id, entry);
       }
       const target = roomFor(s.activity);
@@ -1272,14 +1340,17 @@ const Office = (() => {
         target.querySelector('.room-floor').appendChild(entry.node);
         entry.room = target;
       }
-      // Color + active state + bubble.
-      entry.node.querySelector('.agent-dot').style.background = activityColor(s.activity);
+      // Re-draw the face only when active-ness flips (smile/eyes change).
+      if (entry.active !== !!s.active) {
+        entry.active = !!s.active;
+        entry.node.replaceChild(makeAgentSvg(s, entry.active), entry.node.querySelector('.agent-figure'));
+      }
+      // Tint the figure (shirt/body) by activity; keep the face readable.
+      entry.node.style.setProperty('--agent-tint', activityColor(s.activity));
       entry.node.classList.toggle('active', !!s.active);
-      const bubble = entry.node.querySelector('.bubble');
-      const text = bubbleText(s);
-      bubble.textContent = text;
-      entry.node.classList.toggle('has-bubble', !!text); // hover to reveal
-
+      // Store the latest bubble text; the rotation loop decides who shows it.
+      entry.text = bubbleText(s);
+      entry.node.querySelector('.bubble').textContent = entry.text;
     }
     // Drop avatars whose session vanished from the snapshot.
     for (const [id, entry] of agents) {
@@ -1288,17 +1359,44 @@ const Office = (() => {
     const n = agents.size;
     $count.textContent = `${n} agent${n === 1 ? '' : 's'}`;
     $empty.hidden = n > 0;
+    if (started) applyBubbles();
   }
 
+  // Decide which agents currently show their speech bubble. Active agents
+  // always do; the rest take turns (a sliding window) so bubbles don't all
+  // pile up at once. Called on a timer and after each snapshot.
+  let rotateOffset = 0;
+  // Show at most ONE bubble per room at a time (rotating through that room's
+  // agents) so speech bubbles never overlap, even in a crowded room.
+  function applyBubbles() {
+    const perRoom = new Map(); // room element -> agents that have something to say
+    for (const [, entry] of agents) {
+      entry.node.classList.remove('show-bubble');
+      if (!entry.text || !entry.room) continue;
+      if (!perRoom.has(entry.room)) perRoom.set(entry.room, []);
+      perRoom.get(entry.room).push(entry);
+    }
+    for (const [, list] of perRoom) {
+      // Prefer an active agent in the room; otherwise rotate through the rest.
+      const actives = list.filter((e) => e.active);
+      const pickFrom = actives.length ? actives : list;
+      pickFrom[rotateOffset % pickFrom.length].node.classList.add('show-bubble');
+    }
+  }
+
+  let rotateTimer = null;
   function start() {
     if (started) return;
     started = true;
-    // Recolor avatars on theme switch (they use CSS-var-derived inline colors).
+    applyBubbles();
+    rotateTimer = setInterval(() => { rotateOffset++; applyBubbles(); }, 3000);
   }
   function redraw() {
+    // Theme changed: re-tint and rebuild faces with fresh palette-independent
+    // colors (skin/hair are fixed; only the activity tint uses CSS vars).
     for (const [, entry] of agents) {
       const act = entry.room ? entry.room.dataset.activity : 'idle';
-      entry.node.querySelector('.agent-dot').style.background = activityColor(act);
+      entry.node.style.setProperty('--agent-tint', activityColor(act));
     }
   }
 
