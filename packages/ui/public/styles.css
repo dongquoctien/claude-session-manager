@@ -1158,7 +1158,35 @@ html, body {
    #office-classic / .oc-* so it never clashes with Pro's floorplan rules.
    The avatar + bubble visuals are shared (.agent/.bubble), but Classic lays
    agents out in normal flow, so .oc-agent resets Pro's absolute positioning. */
-.office-mode-switch { margin-left: auto; }
+/* Office view picker: a segmented control (two equal options, not on/off). */
+.office-mode-seg { margin-left: auto; }
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.seg-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.seg-btn:hover { color: var(--text); }
+.seg-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+.seg-btn:focus-visible { outline: 2px solid var(--accent-dim); outline-offset: 1px; }
 #office-classic {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
