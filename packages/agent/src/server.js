@@ -16,6 +16,8 @@ import {
   deleteSession,
   restoreSession,
   projectsDir,
+  generateChatter,
+  resolveClaudeBin,
 } from '@csm/core';
 import { publicDir } from '@csm/ui/dir';
 
@@ -61,6 +63,29 @@ export function createServer(opts = {}) {
     return data;
   }
 
+  // --- Office agent chatter (demand-driven) ---
+  // We only spawn `claude` to refresh the line pool when a client is actually
+  // polling /api/chatter (i.e. someone is viewing the Office with chatter on).
+  // No client polling -> no spawn -> no token spend.
+  const CHATTER_TTL_MS = 45000;
+  /** @type {Record<string,string[]>|null} */
+  let chatter = null;
+  let chatterAt = 0;
+  let chatterRefreshing = false;
+  async function refreshChatter() {
+    if (chatterRefreshing) return;
+    if (!resolveClaudeBin()) return; // no claude on this machine -> UI uses its static pool
+    chatterRefreshing = true;
+    try {
+      const lines = await generateChatter();
+      if (lines) { chatter = lines; chatterAt = Date.now(); }
+    } catch {
+      // swallow: keep whatever pool we already had; UI has a fallback anyway
+    } finally {
+      chatterRefreshing = false;
+    }
+  }
+
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, `http://${HOST}`);
@@ -85,6 +110,17 @@ export function createServer(opts = {}) {
         // One-shot metrics snapshot (polling fallback for the SSE stream).
         const data = await scanMetrics();
         return send(res, 200, data);
+      }
+
+      if (req.method === 'GET' && url.pathname === '/api/chatter') {
+        // Return the cached line pool immediately (never spawn in the request
+        // path). This poll is itself the "someone is watching" signal: after
+        // answering, kick a background refresh if the pool is stale. When the
+        // pool is empty (no claude / not generated yet) the client falls back
+        // to its own static lines.
+        send(res, 200, { lines: chatter || {}, at: chatterAt });
+        if (Date.now() - chatterAt >= CHATTER_TTL_MS) refreshChatter();
+        return;
       }
 
       if (req.method === 'GET' && url.pathname === '/api/session') {

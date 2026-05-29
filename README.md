@@ -19,6 +19,14 @@ hit-rate, and per-session activity (thinking / writing / running / …) across
 every conversation — in the terminal (`csm monitor`) and in the web UI's
 **Monitor** tab, which streams updates over Server-Sent Events.
 
+And just for fun: an **Office** view that renders every conversation as a
+little SVG character moving between themed rooms based on what the agent is
+doing right now — with a central lounge, a TV showing live Recent Activity,
+a pinball cabinet that long-idle agents wander over to play, and optional
+multilingual chatter (EN / KR / JP / VN) generated on demand by the local
+`claude` CLI. Pick **Pro** (open-plan floorplan, walking avatars) or
+**Classic** (simple 9-room grid).
+
 ### Web UI — Monitor tab
 
 ![Monitor web UI](./assets/monitor-web.png)
@@ -26,6 +34,24 @@ every conversation — in the terminal (`csm monitor`) and in the web UI's
 ### Terminal — `csm monitor`
 
 ![csm monitor](./assets/monitor-cli.png)
+
+### Web UI — Office tab (Pro)
+
+Six work rooms around a central lounge. Each conversation is an avatar; the
+TV shows Recent Activity; the pinball cabinet in the corner takes the
+longest-idle agents while everyone else hangs around the meeting table and
+sofa. Speech bubbles cycle through real activity lines and multilingual
+banter.
+
+![Office Pro view](./assets/office-pro.png)
+
+### Web UI — Office tab (Classic)
+
+Same data, simpler picture: a 3×3 grid of rooms, one card per activity.
+Toggle between Pro and Classic from the segmented control at the top right
+of the Office tab.
+
+![Office Classic view](./assets/office-classic.png)
 
 ## Download
 
