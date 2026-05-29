@@ -727,9 +727,65 @@ const Monitor = (() => {
   const $livePill = document.getElementById('live-pill');
   const $liveText = document.getElementById('live-text');
 
+  // --- sidebar filter/sort state (client-side; survives SSE refresh) ---
+  const $monSearch = document.getElementById('mon-search');
+  const $monActive = document.getElementById('mon-active-toggle');
+  let filterText = '';
+  let filterActive = false;
+  let sortKey = 'recent';   // 'recent' | 'tokens' | 'cost'
+  let filterModel = '';     // '' = all models
+  let modelOptionsKey = ''; // tracks which model set the dropdown was built from
+
+  const $sortDD = createDropdown('mon-sort-dd');
+  $sortDD.setOptions([
+    { value: 'recent', label: 'Recent' },
+    { value: 'tokens', label: 'Most tokens' },
+    { value: 'cost', label: 'Highest cost' },
+  ]);
+  $sortDD.onChange((v) => { sortKey = v; renderSidebar(); });
+
+  const $modelDD = createDropdown('mon-model-dd');
+  $modelDD.setOptions([{ value: '', label: 'All models' }]);
+  $modelDD.onChange((v) => { filterModel = v; renderSidebar(); });
+
   function setLive(state) {
     $livePill.className = 'live-pill ' + state; // connected | connecting | offline
     $liveText.textContent = state;
+  }
+
+  /** Rebuild the model dropdown when the set of models in `latest` changes,
+   *  preserving the current selection. */
+  function syncModelOptions(sessions) {
+    const models = [...new Set(sessions.map((s) => s.model).filter(Boolean))].sort();
+    const key = models.join('|');
+    if (key === modelOptionsKey) return;
+    modelOptionsKey = key;
+    const opts = [{ value: '', label: 'All models' }];
+    for (const m of models) opts.push({ value: m, label: m.replace(/^claude-/, '') });
+    $modelDD.setOptions(opts);
+    // If the previously-selected model vanished, fall back to All.
+    if (filterModel && !models.includes(filterModel)) { filterModel = ''; }
+    $modelDD.value = filterModel;
+  }
+
+  /** Apply search + active-only + model filters and the chosen sort. */
+  function visibleSessions() {
+    const q = filterText.trim().toLowerCase();
+    let out = latest.filter((s) => {
+      if (filterActive && !s.active) return false;
+      if (filterModel && s.model !== filterModel) return false;
+      if (q) {
+        const hay = `${shortName(s)} ${s.cwd || ''} ${s.projectLabel || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    out = out.slice().sort((a, b) => {
+      if (sortKey === 'tokens') return b.totalTokens - a.totalTokens;
+      if (sortKey === 'cost') return b.costUSD - a.costUSD;
+      return b.mtime - a.mtime; // recent
+    });
+    return out;
   }
 
   function start() {
@@ -748,9 +804,10 @@ const Monitor = (() => {
         const data = JSON.parse(e.data);
         latest = data.sessions || [];
         firstLoaded = true;
-        renderSidebar(latest);
+        syncModelOptions(latest);
+        renderSidebar();
         renderSysStats(data.systemStats);
-        if (!selectedId && latest.length) selectedId = latest[0].id;
+        if (!selectedId && latest.length) selectedId = (visibleSessions()[0] || latest[0]).id;
         renderDetail(currentSession());
       } catch { /* ignore malformed frame */ }
     });
@@ -804,8 +861,13 @@ const Monitor = (() => {
     return span;
   }
 
-  function renderSidebar(sessions) {
+  function renderSidebar() {
+    const sessions = visibleSessions();
     $sidebar.replaceChildren();
+    if (sessions.length === 0) {
+      $sidebar.appendChild(el('div', 'empty', 'No sessions match.'));
+      return;
+    }
     for (const s of sessions.slice(0, 60)) {
       const card = el('div', 'mon-card' + (s.id === selectedId ? ' selected' : '') + (s.active ? ' is-active' : ''));
       card.dataset.id = s.id;
@@ -827,7 +889,7 @@ const Monitor = (() => {
 
       card.addEventListener('click', () => {
         selectedId = s.id;
-        renderSidebar(latest);
+        renderSidebar();
         renderDetail(currentSession());
       });
       $sidebar.appendChild(card);
@@ -996,6 +1058,18 @@ const Monitor = (() => {
 
   // Re-render the chart so it picks up new CSS colors (e.g. after a theme switch).
   function redraw() { const s = currentSession(); if (s && started) renderChart(s); }
+
+  // --- wire sidebar filter controls ---
+  let monSearchTimer;
+  $monSearch.addEventListener('input', () => {
+    clearTimeout(monSearchTimer);
+    monSearchTimer = setTimeout(() => { filterText = $monSearch.value; renderSidebar(); }, 120);
+  });
+  $monActive.addEventListener('click', () => {
+    filterActive = !filterActive;
+    $monActive.setAttribute('aria-pressed', String(filterActive));
+    renderSidebar();
+  });
 
   return { start, redraw };
 })();
