@@ -844,6 +844,20 @@ html, body {
 .mon-sysstats dt { color: var(--text-dim); }
 .mon-sysstats dd { margin: 0; text-align: right; font-weight: 600; }
 
+/* Tokens-by-model donut + legend (system-wide). */
+.mon-models { flex: none; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
+.mon-models h3 { margin: 0 0 8px; font-size: 13px; display: flex; align-items: center; gap: 6px; color: var(--text); }
+.mon-models h3 .icon { width: 15px; height: 15px; color: var(--accent); }
+.mon-models-body { display: flex; align-items: center; gap: 12px; }
+.mon-model-chart { flex: none; width: 84px; height: 84px; }
+.mon-model-chart .donut { width: 100%; height: 100%; transform: rotate(-90deg); }
+.mon-model-legend { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.mon-model-legend .empty { color: var(--text-dim); padding: 0; }
+.mon-model-row { display: flex; align-items: center; gap: 6px; }
+.mon-model-dot { flex: none; width: 9px; height: 9px; border-radius: 2px; }
+.mon-model-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); font-family: ui-monospace, Consolas, monospace; }
+.mon-model-val { flex: none; font-weight: 600; }
+
 /* Header of the detail pane */
 .mon-head h2 { margin: 0; font-size: 18px; }
 .mon-subtitle { color: var(--text-dim); font-size: 13px; margin-top: 2px; }

@@ -736,6 +736,8 @@ const Monitor = (() => {
   const $filesTitle = document.getElementById('mon-files-title');
   const $livePill = document.getElementById('live-pill');
   const $liveText = document.getElementById('live-text');
+  const $modelChart = document.getElementById('mon-model-chart');
+  const $modelLegend = document.getElementById('mon-model-legend');
 
   // --- sidebar filter/sort state (client-side; survives SSE refresh) ---
   const $monSearch = document.getElementById('mon-search');
@@ -817,6 +819,7 @@ const Monitor = (() => {
         syncModelOptions(latest);
         renderSidebar();
         renderSysStats(data.systemStats);
+        renderModelBreakdown(data.systemStats && data.systemStats.byModel);
         if (!selectedId && latest.length) selectedId = (visibleSessions()[0] || latest[0]).id;
         renderDetail(currentSession());
       } catch { /* ignore malformed frame */ }
@@ -1086,11 +1089,84 @@ const Monitor = (() => {
     }
   }
 
+  // --- tokens-by-model donut (system-wide) ---
+
+  let latestByModel = []; // kept so a theme switch can re-render with fresh colors
+
+  // Stable palette pulled from theme CSS vars so it adapts to light/dark. Known
+  // families get a fixed hue; anything else cycles through the rest.
+  const MODEL_HUES = ['--accent', '--magenta', '--ok', '--warn', '--err'];
+  function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#888';
+  }
+  function modelColor(model, idx) {
+    const m = (model || '').toLowerCase();
+    if (m.includes('opus')) return cssVar('--accent');
+    if (m.includes('sonnet')) return cssVar('--magenta');
+    if (m.includes('haiku')) return cssVar('--ok');
+    return cssVar(MODEL_HUES[idx % MODEL_HUES.length]);
+  }
+
+  function renderModelBreakdown(byModel) {
+    latestByModel = byModel || [];
+    const total = latestByModel.reduce((n, m) => n + m.tokens, 0);
+    if (!latestByModel.length || total <= 0) {
+      $modelChart.replaceChildren();
+      $modelLegend.replaceChildren(el('li', 'empty', 'No model data yet.'));
+      return;
+    }
+    // Donut via one SVG circle per slice using stroke-dasharray. r chosen so the
+    // circumference is a round 100 → dasharray values read as percentages.
+    const r = 15.915; // circumference ≈ 100
+    const cx = 21, cy = 21, sw = 6;
+    const SVG = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(SVG, 'svg');
+    svg.setAttribute('viewBox', '0 0 42 42');
+    svg.setAttribute('class', 'donut');
+    // track ring
+    const track = document.createElementNS(SVG, 'circle');
+    track.setAttribute('cx', cx); track.setAttribute('cy', cy); track.setAttribute('r', r);
+    track.setAttribute('fill', 'none');
+    track.setAttribute('stroke', cssVar('--border'));
+    track.setAttribute('stroke-width', sw);
+    svg.appendChild(track);
+
+    // SVG is rotated -90deg in CSS so slices start at 12 o'clock; offset 0 = top.
+    let offset = 0;
+    $modelLegend.replaceChildren();
+    latestByModel.forEach((m, i) => {
+      const pct = (m.tokens / total) * 100;
+      const color = modelColor(m.model, i);
+      const seg = document.createElementNS(SVG, 'circle');
+      seg.setAttribute('cx', cx); seg.setAttribute('cy', cy); seg.setAttribute('r', r);
+      seg.setAttribute('fill', 'none');
+      seg.setAttribute('stroke', color);
+      seg.setAttribute('stroke-width', sw);
+      seg.setAttribute('stroke-dasharray', `${pct} ${100 - pct}`);
+      seg.setAttribute('stroke-dashoffset', String(offset));
+      svg.appendChild(seg);
+      offset -= pct; // next slice starts where this one ended
+
+      const li = el('li', 'mon-model-row');
+      const dot = el('span', 'mon-model-dot'); dot.style.background = color;
+      li.appendChild(dot);
+      li.appendChild(el('span', 'mon-model-name', (m.model || '—').replace(/^claude-/, '')));
+      li.appendChild(el('span', 'mon-model-val', `${fmt.tokens(m.tokens)} · ${pct.toFixed(0)}%`));
+      li.title = `${fmt.cost(m.costUSD)} (est.)`;
+      $modelLegend.appendChild(li);
+    });
+    $modelChart.replaceChildren(svg);
+  }
+
   function onResize() { const s = currentSession(); if (s && started) renderChart(s); }
   window.addEventListener('resize', onResize);
 
-  // Re-render the chart so it picks up new CSS colors (e.g. after a theme switch).
-  function redraw() { const s = currentSession(); if (s && started) renderChart(s); }
+  // Re-render charts so they pick up new CSS colors (e.g. after a theme switch).
+  function redraw() {
+    const s = currentSession();
+    if (s && started) renderChart(s);
+    if (started) renderModelBreakdown(latestByModel);
+  }
 
   // --- wire sidebar filter controls ---
   let monSearchTimer;

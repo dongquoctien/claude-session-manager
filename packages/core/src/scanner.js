@@ -237,6 +237,7 @@ export async function sessionTokenChart(file, opts = {}) {
  * @property {number} totalCost
  * @property {number} avgDurationMs
  * @property {string|null} topModel
+ * @property {{model:string, tokens:number, costUSD:number}[]} byModel  token/cost grouped by model, desc by tokens
  */
 
 /** @param {MonitorSession[]} sessions @returns {SystemStats} */
@@ -247,7 +248,8 @@ function computeSystemStats(sessions) {
   let durationSum = 0;
   let durationCount = 0;
   let activeSessions = 0;
-  const modelCounts = new Map();
+  /** @type {Map<string, { tokens: number, costUSD: number }>} */
+  const modelTotals = new Map();
 
   for (const s of sessions) {
     totalMessages += s.messages;
@@ -255,14 +257,20 @@ function computeSystemStats(sessions) {
     totalCost += s.costUSD;
     if (s.durationMs > 0) { durationSum += s.durationMs; durationCount += 1; }
     if (s.active) activeSessions += 1;
-    if (s.model) modelCounts.set(s.model, (modelCounts.get(s.model) || 0) + 1);
+    if (s.model) {
+      const t = modelTotals.get(s.model) || { tokens: 0, costUSD: 0 };
+      t.tokens += s.totalTokens;
+      t.costUSD += s.costUSD;
+      modelTotals.set(s.model, t);
+    }
   }
 
-  let topModel = null;
-  let topCount = -1;
-  for (const [model, count] of modelCounts) {
-    if (count > topCount) { topModel = model; topCount = count; }
-  }
+  // Token/cost breakdown by model, biggest first (for the Monitor donut).
+  const byModel = [...modelTotals.entries()]
+    .map(([model, t]) => ({ model, tokens: t.tokens, costUSD: t.costUSD }))
+    .sort((a, b) => b.tokens - a.tokens);
+
+  const topModel = byModel.length ? byModel[0].model : null;
 
   return {
     activeSessions,
@@ -272,6 +280,7 @@ function computeSystemStats(sessions) {
     totalCost,
     avgDurationMs: durationCount > 0 ? durationSum / durationCount : 0,
     topModel,
+    byModel,
   };
 }
 
