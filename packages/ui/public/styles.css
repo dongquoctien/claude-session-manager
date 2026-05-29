@@ -951,21 +951,17 @@ html, body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
-/* Visible hallway lanes (tiled, lighter than rooms) the avatars walk along. */
-.hallway {
+/* Central lounge: an open shared space the avatars cross between rooms. */
+.lounge {
   position: absolute;
   z-index: 0;
+  border-radius: var(--radius);
   background:
-    repeating-linear-gradient(90deg,
-      color-mix(in srgb, var(--border) 22%, var(--bg-elev)) 0 22px,
-      color-mix(in srgb, var(--border) 38%, var(--bg-elev)) 22px 24px);
+    radial-gradient(80% 60% at 50% 45%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 70%),
+    repeating-linear-gradient(45deg,
+      color-mix(in srgb, var(--border) 16%, var(--bg-elev)) 0 16px,
+      color-mix(in srgb, var(--border) 26%, var(--bg-elev)) 16px 18px);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 50%, transparent);
-}
-.hallway-h {
-  background:
-    repeating-linear-gradient(0deg,
-      color-mix(in srgb, var(--border) 22%, var(--bg-elev)) 0 22px,
-      color-mix(in srgb, var(--border) 38%, var(--bg-elev)) 22px 24px);
 }
 .room {
   --room-tint: var(--text-dim);
@@ -1017,17 +1013,17 @@ html, body {
   letter-spacing: 0.02em;
   pointer-events: none;
 }
-/* Door opening: a gap in the thick wall on the hallway side. */
+/* Door opening: a gap in the thick wall on the lounge-facing (inner) side. */
 .room-door {
   position: absolute;
-  width: 44px;
-  height: 6px;
-  left: 0;
+  width: 6px;
+  height: 44px;
+  top: 0;
   background: var(--floor-col);   /* same as room floor → reads as an opening */
   z-index: 1;
 }
-.room-door.door-bottom { bottom: -3px; }
-.room-door.door-top { top: -3px; }
+.room-door.door-right { right: -3px; }  /* left-column rooms: door on right wall */
+.room-door.door-left { left: -3px; }    /* right-column rooms: door on left wall */
 
 /* Furniture (a desk per room kind) sits against the room's back wall. */
 .desk {

@@ -1199,63 +1199,74 @@ const Office = (() => {
   let started = false;
   let built = false;
 
-  // --- floor plan: a 3x3 grid of rooms separated by real hallway lanes -------
-  // The hallway is the empty band between rooms (HALL_W wide). Avatars only ever
-  // travel along the lane centre-lines, entering/leaving each room by its single
-  // door on the hallway-facing edge — so paths never cut through a room.
-  const PAD = 16;                  // outer margin
-  const RW = 286, RH = 178;        // room size
-  const HALL_W = 52;               // hallway lane width (visible + walkable)
-  const WORLD_W = PAD * 2 + RW * 3 + HALL_W * 2;     // 1000
-  const WORLD_H = PAD * 2 + RH * 3 + HALL_W * 2;     // 696
-  const COLX = [PAD, PAD + RW + HALL_W, PAD + 2 * (RW + HALL_W)]; // room lefts
-  const ROWY = [PAD, PAD + RH + HALL_W, PAD + 2 * (RH + HALL_W)]; // room tops
-  // Lane centre-lines: 2 vertical (between cols), 2 horizontal (between rows).
-  const LANE_X = [COLX[1] - HALL_W / 2, COLX[2] - HALL_W / 2];
-  const LANE_Y = [ROWY[1] - HALL_W / 2, ROWY[2] - HALL_W / 2];
+  // --- open-plan office: 6 work rooms around a central lounge ----------------
+  // Two columns of 3 rooms (left/right) flank a wide central lounge. Each room
+  // has one door on its lounge-facing (inner) edge. idle/waiting/thinking live
+  // in the lounge itself, so the office never looks empty when work is quiet.
+  const PAD = 16;
+  const RW = 250, RH = 168;        // edge-room size
+  const GAP = 14;                  // vertical gap between stacked rooms
+  const LOUNGE_W = 470;            // central lounge width (wide → landscape feel)
+  const WORLD_W = PAD * 2 + RW * 2 + LOUNGE_W;            // 1002 (~1.73:1)
+  const WORLD_H = PAD * 2 + RH * 3 + GAP * 2;             // 580
+  const LEFTX = PAD;                         // left column room left
+  const RIGHTX = WORLD_W - PAD - RW;         // right column room left
+  const LOUNGE = { x: PAD + RW, y: PAD, w: WORLD_W - 2 * (PAD + RW), h: RH * 3 + GAP * 2 };
+  const LOUNGE_CX = LOUNGE.x + LOUNGE.w / 2;
+  const ROWY = [PAD, PAD + RH + GAP, PAD + 2 * (RH + GAP)];
 
-  // 9 activities placed on the 3x3 grid (row-major).
-  const LAYOUT = [
-    ['thinking', 'reading', 'writing'],
-    ['running', 'searching', 'browsing'],
-    ['spawning', 'waiting', 'idle'],
-  ];
   const LABELS = {
-    thinking: 'Thinking', reading: 'Reading', writing: 'Coding',
-    running: 'Running', searching: 'Searching', browsing: 'Browsing',
-    spawning: 'Spawning', waiting: 'Waiting', idle: 'Idle',
+    writing: 'Coding', reading: 'Reading', running: 'Running',
+    searching: 'Searching', browsing: 'Browsing', spawning: 'Spawning',
   };
-  const nearest = (v, arr) => arr.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a), arr[0]);
+  // Which activities are real rooms (left column top→bottom, then right column).
+  const ROOM_DEFS = [
+    { activity: 'writing', side: 'L', row: 0 },
+    { activity: 'running', side: 'L', row: 1 },
+    { activity: 'searching', side: 'L', row: 2 },
+    { activity: 'reading', side: 'R', row: 0 },
+    { activity: 'browsing', side: 'R', row: 1 },
+    { activity: 'spawning', side: 'R', row: 2 },
+  ];
 
-  /** @type {Map<string,{activity,r,c,x,y,w,h,door,laneY,laneX,slots}>} */
-  const ROOMS = new Map();
-  (function defineRooms() {
-    for (let r = 0; r < 3; r++) {
-      for (let c = 0; c < 3; c++) {
-        const activity = LAYOUT[r][c];
-        const x = COLX[c], y = ROWY[r];
-        // Door on the edge that faces the room's nearest horizontal hallway:
-        // top rows exit downward, the bottom row exits upward.
-        const exitDown = r < 2;
-        const doorY = exitDown ? y + RH : y;          // on the room wall
-        const laneY = exitDown ? LANE_Y[r] : LANE_Y[r - 1]; // the lane just outside that door
-        const door = { x: x + RW / 2, y: doorY, lane: laneY };
-        // The vertical lane this column drains into (for cross-column travel).
-        const laneX = nearest(x + RW / 2, LANE_X);
-        // Standing slots near the desk (desk sits along the back/top wall).
-        const slots = [];
-        const cols = 4, sx = x + 40, sy = y + RH - 34, gap = (RW - 80) / (cols - 1);
-        for (let i = 0; i < 8; i++) {
-          slots.push({ x: sx + (i % cols) * gap, y: sy - Math.floor(i / cols) * 40 });
-        }
-        ROOMS.set(activity, { activity, r, c, x, y, w: RW, h: RH, door, laneY, laneX, slots });
-      }
+  /** @type {Map<string, object>} zone by activity (rooms) + 'lounge'. */
+  const ZONES = new Map();
+  (function defineZones() {
+    for (const def of ROOM_DEFS) {
+      const x = def.side === 'L' ? LEFTX : RIGHTX;
+      const y = ROWY[def.row];
+      // Door on the inner edge (facing the lounge): right edge for L, left for R.
+      const doorX = def.side === 'L' ? x + RW : x;
+      const door = { x: doorX, y: y + RH / 2 };
+      // Standing slots near the desk (desk along the back/top wall).
+      const slots = [];
+      const cols = 4, sx = x + 34, sy = y + RH - 30, gap = (RW - 68) / (cols - 1);
+      for (let i = 0; i < 8; i++) slots.push({ x: sx + (i % cols) * gap, y: sy - Math.floor(i / cols) * 38 });
+      ZONES.set(def.activity, { kind: 'room', activity: def.activity, side: def.side, x, y, w: RW, h: RH, door, slots });
     }
+    // Lounge: idle/waiting/thinking sit here, in three separate clusters.
+    const cx = LOUNGE_CX, cy = LOUNGE.y + LOUNGE.h / 2;
+    const ring = (n, rx, ry, oy = 0) => Array.from({ length: n }, (_, i) => {
+      const a = (i / n) * Math.PI * 2 - Math.PI / 2;
+      return { x: cx + Math.cos(a) * rx, y: cy + oy + Math.sin(a) * ry };
+    });
+    ZONES.set('lounge', {
+      kind: 'lounge', activity: 'lounge', ...LOUNGE,
+      door: { x: cx, y: cy },              // "door" = lounge centre (already inside)
+      groups: {
+        waiting: ring(6, 92, 60, -70),     // around the meeting table (upper)
+        idle: ring(4, 70, 30, 70),         // around the sofa (lower)
+        thinking: ring(3, 120, 40, 6),     // loose chairs (mid, wide)
+      },
+    });
   })();
 
-  function roomFor(activity) {
-    return ROOMS.get(activity) || ROOMS.get('idle');
+  /** Resolve an activity to its zone + the slot group to stand in. */
+  function zoneFor(activity) {
+    if (ZONES.has(activity)) return { zone: ZONES.get(activity), group: null };
+    return { zone: ZONES.get('lounge'), group: activity }; // idle/waiting/thinking
   }
+  function roomFor(activity) { return zoneFor(activity).zone; }
   function shortName(s) {
     if (s.cwd) return s.cwd.replace(/[\\/]+$/, '').replace(/^.*[\\/]/, '') || s.projectLabel;
     return s.projectLabel || s.id.slice(0, 8);
@@ -1338,46 +1349,88 @@ const Office = (() => {
     return g;
   }
 
-  /** Build the static floor once: hallway lanes + rooms + furniture. */
+  /** Build the static floor once: central lounge + 6 edge rooms + furniture. */
   function buildFloor() {
     if (built || !$floor) return;
     built = true;
     $floor.style.setProperty('--floor-w', WORLD_W + 'px');
     $floor.style.setProperty('--floor-h', WORLD_H + 'px');
-    // Visible hallway lanes (under the rooms): 2 vertical + 2 horizontal bands.
-    for (const cx of LANE_X) {
-      const lane = el('div', 'hallway hallway-v');
-      lane.style.cssText = `left:${cx - HALL_W / 2}px;top:0;width:${HALL_W}px;height:${WORLD_H}px`;
-      $floor.appendChild(lane);
-    }
-    for (const cy of LANE_Y) {
-      const lane = el('div', 'hallway hallway-h');
-      lane.style.cssText = `left:0;top:${cy - HALL_W / 2}px;width:${WORLD_W}px;height:${HALL_W}px`;
-      $floor.appendChild(lane);
-    }
-    for (const room of ROOMS.values()) {
+
+    // Central lounge (drawn first, sits under the rooms' shadows).
+    const lz = ZONES.get('lounge');
+    const lounge = el('div', 'lounge');
+    lounge.style.cssText = `left:${lz.x}px;top:${lz.y}px;width:${lz.w}px;height:${lz.h}px`;
+    // Lounge props: meeting table (upper), sofa (lower), plants + vending (corners).
+    const addProp = (svg, x, y) => { svg.style.cssText = `left:${x}px;top:${y}px`; lounge.appendChild(svg); };
+    addProp(loungeProp('table'), lz.w / 2 - 60, lz.h * 0.18);
+    addProp(loungeProp('sofa'), lz.w / 2 - 55, lz.h * 0.62);
+    addProp(loungeProp('plant'), 14, lz.h - 46);
+    addProp(loungeProp('plant'), lz.w - 42, lz.h - 46);
+    addProp(loungeProp('vending'), lz.w - 50, 12);
+    addProp(loungeProp('water'), 14, 12);
+    $floor.appendChild(lounge);
+
+    // Six edge rooms with a door on the lounge-facing edge.
+    for (const def of ROOM_DEFS) {
+      const room = ZONES.get(def.activity);
       const el2 = el('div', 'room');
       el2.dataset.activity = room.activity;
       el2.style.cssText = `left:${room.x}px;top:${room.y}px;width:${room.w}px;height:${room.h}px`;
-      // Door opening cut into the hallway-facing wall (matches route exit point).
-      const door = el('div', 'room-door ' + (room.door.y > room.y ? 'door-bottom' : 'door-top'));
-      door.style.left = (room.door.x - room.x - 22) + 'px';
+      // Door cut into the inner wall (right edge for left col, left edge for right col).
+      const door = el('div', 'room-door ' + (room.side === 'L' ? 'door-right' : 'door-left'));
+      door.style.top = (room.door.y - room.y - 22) + 'px';
       el2.appendChild(door);
       el2.appendChild(el('span', 'room-label', LABELS[room.activity]));
       const desk = deskSvg(room.activity);
-      // Center the desk against the back wall of the room.
       desk.style.cssText = `left:${room.w / 2 - 40}px;top:8px`;
       el2.appendChild(desk);
-      // Props: a chair below the desk + a potted plant in a corner.
       const chair = propSvg('chair');
       chair.style.cssText = `left:${room.w / 2 - 14}px;top:54px`;
       el2.appendChild(chair);
-      const plant = propSvg('plant');
-      plant.style.cssText = `left:${room.w - 34}px;top:${room.h - 40}px`;
-      el2.appendChild(plant);
       $floor.appendChild(el2);
     }
     fitFloor();
+  }
+
+  /** Bigger furniture for the central lounge. */
+  function loungeProp(kind) {
+    if (kind === 'table') { // meeting table with chairs
+      const g = svgEl('svg', { viewBox: '0 0 120 70', class: 'desk', width: 120, height: 70 });
+      g.appendChild(svgEl('ellipse', { cx: 60, cy: 35, rx: 46, ry: 24, fill: '#8d6a4a' }));
+      g.appendChild(svgEl('ellipse', { cx: 60, cy: 33, rx: 40, ry: 19, fill: '#a07a52' }));
+      for (const a of [0, 60, 120, 180, 240, 300]) {
+        const x = 60 + Math.cos(a * Math.PI / 180) * 56, y = 35 + Math.sin(a * Math.PI / 180) * 30;
+        g.appendChild(svgEl('rect', { x: x - 5, y: y - 5, width: 10, height: 10, rx: 2, fill: '#6b4f36' }));
+      }
+      return g;
+    }
+    if (kind === 'sofa') {
+      const g = svgEl('svg', { viewBox: '0 0 110 44', class: 'desk', width: 110, height: 44 });
+      g.appendChild(svgEl('rect', { x: 4, y: 10, width: 102, height: 30, rx: 8, fill: '#5a6b8c' }));
+      g.appendChild(svgEl('rect', { x: 4, y: 4, width: 102, height: 14, rx: 7, fill: '#6b7da0' }));
+      g.appendChild(svgEl('rect', { x: 0, y: 14, width: 12, height: 24, rx: 5, fill: '#6b7da0' }));
+      g.appendChild(svgEl('rect', { x: 98, y: 14, width: 12, height: 24, rx: 5, fill: '#6b7da0' }));
+      return g;
+    }
+    if (kind === 'vending') {
+      const g = svgEl('svg', { viewBox: '0 0 36 48', class: 'desk', width: 36, height: 48 });
+      g.appendChild(svgEl('rect', { x: 2, y: 2, width: 32, height: 44, rx: 3, fill: '#c0392b' }));
+      g.appendChild(svgEl('rect', { x: 6, y: 6, width: 16, height: 26, rx: 2, fill: '#1b2733' }));
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) g.appendChild(svgEl('rect', { x: 8 + c * 5, y: 8 + r * 8, width: 3, height: 5, fill: '#7fc8a0' }));
+      g.appendChild(svgEl('rect', { x: 25, y: 8, width: 6, height: 18, rx: 1, fill: '#2b2620' }));
+      return g;
+    }
+    if (kind === 'water') { // water cooler
+      const g = svgEl('svg', { viewBox: '0 0 24 48', class: 'desk', width: 24, height: 48 });
+      g.appendChild(svgEl('rect', { x: 5, y: 18, width: 14, height: 28, rx: 2, fill: '#e8eef2' }));
+      g.appendChild(svgEl('path', { d: 'M7 18l5-12 5 12z', fill: '#5b8def', opacity: 0.8 }));
+      return g;
+    }
+    // plant (larger)
+    const g = svgEl('svg', { viewBox: '0 0 32 40', class: 'desk', width: 32, height: 40 });
+    g.appendChild(svgEl('path', { d: 'M16 22c-8 0-12-8-12-16 7 0 12 6 12 16zM16 22c8 0 12-8 12-16-7 0-12 6-12 16z', fill: '#5fae8c' }));
+    g.appendChild(svgEl('path', { d: 'M9 22h14l-2 12H11z', fill: '#b06a4a' }));
+    return g;
   }
 
   /** Small decorative props (no semantic meaning, just to furnish the room). */
@@ -1549,57 +1602,60 @@ const Office = (() => {
     return s.active || (now - (s.mtime || 0) < RECENT_MS);
   }
 
-  // --- slot manager: hand out non-overlapping standing spots per room -------
-  const occupied = new Map(); // activity -> Set of slot indices in use
-  function takeSlot(room, entry) {
-    if (entry.slot && entry.slot.room === room.activity) return entry.slot;
+  // --- slot manager: non-overlapping spots per zone (+ group for the lounge) -
+  const occupied = new Map(); // key (activity|activity:group) -> Set of indices
+  function slotKey(zone, group) { return group ? zone.activity + ':' + group : zone.activity; }
+  function slotsOf(zone, group) { return group ? zone.groups[group] : zone.slots; }
+  function takeSlot(zone, group, entry) {
+    const key = slotKey(zone, group);
+    if (entry.slot && entry.slot.key === key) return entry.slot;
     releaseSlot(entry);
-    let set = occupied.get(room.activity);
-    if (!set) { set = new Set(); occupied.set(room.activity, set); }
-    let idx = room.slots.findIndex((_, i) => !set.has(i));
-    if (idx < 0) idx = set.size % room.slots.length; // overflow: reuse (stack)
+    const pool = slotsOf(zone, group);
+    let set = occupied.get(key);
+    if (!set) { set = new Set(); occupied.set(key, set); }
+    let idx = pool.findIndex((_, i) => !set.has(i));
+    if (idx < 0) idx = set.size % pool.length; // overflow: reuse (stack)
     set.add(idx);
-    entry.slot = { room: room.activity, idx, ...room.slots[idx] };
+    entry.slot = { key, idx, ...pool[idx] };
     return entry.slot;
   }
   function releaseSlot(entry) {
     if (!entry.slot) return;
-    const set = occupied.get(entry.slot.room);
+    const set = occupied.get(entry.slot.key);
     if (set) set.delete(entry.slot.idx);
     entry.slot = null;
   }
 
-  // --- routing: travel only along hallway lanes, never through a room --------
-  /**
-   * Path from the agent's current room to the target room's desk slot, staying
-   * on the hallway lanes the whole way:
-   *   slot(A) → A.door → A's lane → [turn onto a vertical lane] → B's lane →
-   *   B.door → slot(B).
-   * Each leg is axis-aligned and sits on a lane centre-line or a door axis, so
-   * the avatar never cuts across a room.
-   */
-  function route(fromRoom, toRoom, toSlot) {
-    const a = fromRoom.door, b = toRoom.door;
+  // --- routing: open-plan — travel through the central lounge ----------------
+  // The lounge is an open space (no internal walls), so agents cross it freely.
+  // A room is only entered/left through its door on the lounge-facing edge, and
+  // every cross-lounge leg stays inside the lounge bounding box, so a path never
+  // cuts through another room.
+  function route(fromZone, toZone, toSlot) {
     const pts = [];
-    // 1) leave room A: step out of the door onto A's horizontal lane.
-    pts.push({ x: a.x, y: a.lane });
-    if (fromRoom === toRoom) { pts.push({ x: toSlot.x, y: toSlot.y }); return pts; }
-    // 2) Whenever the two horizontal lanes differ (i.e. we change rows OR the
-    //    rooms drain to different lanes), move vertically ONLY on a vertical
-    //    lane (the gap between columns) — never along a room's centre, which
-    //    would cut through the room in between.
-    if (a.lane !== b.lane) {
-      const vx = nearest(b.x, LANE_X);            // vertical lane beside room B's column
-      pts.push({ x: vx, y: a.lane });             // ride A's lane to that vertical lane
-      pts.push({ x: vx, y: b.lane });             // travel the vertical lane to B's lane
+    const intoLounge = (z) => (z.kind === 'room'
+      // step from the door out to a point just inside the lounge.
+      ? { x: z.side === 'L' ? LOUNGE.x + 24 : LOUNGE.x + LOUNGE.w - 24, y: z.door.y }
+      : null);
+
+    if (fromZone === toZone) { pts.push({ x: toSlot.x, y: toSlot.y }); return pts; }
+
+    // 1) leave the source: room → door → just inside lounge; lounge → current pos.
+    if (fromZone.kind === 'room') {
+      pts.push({ x: fromZone.door.x, y: fromZone.door.y }); // out the door
+      pts.push(intoLounge(fromZone));                        // onto the lounge floor
     }
-    // 3) along B's horizontal lane to directly outside B's door.
-    pts.push({ x: b.x, y: b.lane });
-    // 4) into room B through its door, then square off to the slot (door x →
-    //    slot y → slot x) so the final approach stays axis-aligned, not diagonal.
-    pts.push({ x: b.x, y: b.y });
-    pts.push({ x: b.x, y: toSlot.y });
-    pts.push({ x: toSlot.x, y: toSlot.y });
+    // 2) cross the lounge toward the target's entry side (stay within lounge box).
+    if (toZone.kind === 'room') {
+      const entry = intoLounge(toZone);
+      pts.push({ x: entry.x, y: entry.y });                  // to a point by B's door
+      pts.push({ x: toZone.door.x, y: toZone.door.y });      // in through B's door
+      pts.push({ x: toZone.door.x, y: toSlot.y });           // square off to the slot
+      pts.push({ x: toSlot.x, y: toSlot.y });
+    } else {
+      // target is the lounge itself → just walk to the slot.
+      pts.push({ x: toSlot.x, y: toSlot.y });
+    }
     return pts;
   }
 
@@ -1654,17 +1710,20 @@ const Office = (() => {
         entry = { node, room: null, active: undefined, x: 0, y: 0, queue: [], walking: false, slot: null };
         agents.set(s.id, entry);
       }
-      const target = roomFor(s.activity);
-      if (entry.room !== target) {
+      const { zone: target, group } = zoneFor(s.activity);
+      // Re-route when the zone changes, or when the lounge sub-group changes
+      // (e.g. idle → waiting both live in the lounge but at different clusters).
+      if (entry.room !== target || entry.group !== group) {
         const fromRoom = entry.room;
         entry.room = target;
-        const slot = takeSlot(target, entry);
+        entry.group = group;
+        const slot = takeSlot(target, group, entry);
         if (fresh || !fromRoom) {
-          // Appear at the target room's door, then stroll to the desk.
+          // Appear at the zone's entry point, then stroll to the slot.
           placeAt(entry, { x: target.door.x, y: target.door.y });
           walkTo(entry, [{ x: slot.x, y: slot.y }]);
         } else {
-          // Walk out of the old room and along the hallway lanes to the new one.
+          // Walk out through the lounge to the new zone.
           walkTo(entry, route(fromRoom, target, slot));
         }
       }
