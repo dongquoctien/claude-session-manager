@@ -762,7 +762,7 @@ html, body {
    instead of a tiny nested scroller fighting the page scroll. */
 .monitor { display: flex; gap: 16px; padding: 16px 18px; align-items: flex-start; }
 .mon-sidebar {
-  width: 280px;
+  width: 320px;
   flex: none;
   display: flex;
   flex-direction: column;
