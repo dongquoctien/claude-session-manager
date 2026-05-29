@@ -51,6 +51,13 @@ const deleteBulkReq = (items) =>
 const restoreBulkReq = (ids) =>
   api('/api/restore-bulk', { method: 'POST', body: JSON.stringify({ ids }) });
 
+// One enriched session incl. tokenBuckets (tokens-over-time) for the chart.
+const fetchSession = (id, slug) => {
+  const qs = new URLSearchParams({ id });
+  if (slug) qs.set('slug', slug);
+  return api(`/api/session?${qs.toString()}`);
+};
+
 // --- state ----------------------------------------------------------------
 
 let allRows = []; // flat list of session objects in DOM order (for keyboard nav)
@@ -714,6 +721,9 @@ const Monitor = (() => {
   let chart = null;         // uPlot instance
   let started = false;
   let firstLoaded = false;  // true once the first SSE snapshot has rendered
+  // Token-over-time buckets per session id, fetched lazily from /api/session.
+  // Value: { buckets:{ts,tokens}, atTokens:number } — refetch when totalTokens grows.
+  const tokenChartCache = new Map();
 
   const $sidebar = document.getElementById('mon-session-list');
   const $sysstats = document.getElementById('mon-sysstats-grid');
@@ -966,16 +976,39 @@ const Monitor = (() => {
     }
   }
 
-  // Bucket entry timestamps into a per-session token-usage-over-time bar chart.
-  // We don't have per-entry token deltas in the snapshot, so the chart shows
-  // message volume per time bucket (a faithful "activity" proxy that matches
-  // the mockup's bar shape). Full per-bucket tokens can come from /api/session.
+  // Tokens-over-time bar chart. The SSE snapshot doesn't carry per-entry token
+  // deltas (kept small on purpose), so we lazily fetch server-bucketed
+  // tokenBuckets from /api/session for the selected session. Until that lands
+  // (or if it fails) we fall back to bucketing recentMessages timestamps as a
+  // coarse activity proxy.
   function renderChart(s) {
     if (typeof uPlot === 'undefined') {
       $chartBox.textContent = 'chart unavailable (uPlot not loaded)';
       return;
     }
-    // We only have recentMessages timestamps in the stream snapshot; bucket them.
+    const cached = tokenChartCache.get(s.id);
+    if (cached && cached.buckets.tokens.length >= 2) {
+      drawBars(cached.buckets.ts.map((x) => x / 1000), cached.buckets.tokens, 'tokens');
+    } else {
+      drawMessageFallback(s);
+    }
+    // Fetch (or refresh, if this session has accumulated more tokens) the real
+    // token buckets, then redraw if it's still the selected session.
+    if (!cached || cached.atTokens < s.totalTokens) {
+      fetchSession(s.id, s.projectSlug).then((data) => {
+        const b = data.session && data.session.tokenBuckets;
+        if (!b) return;
+        tokenChartCache.set(s.id, { buckets: b, atTokens: s.totalTokens });
+        if (selectedId === s.id && b.tokens.length >= 2) {
+          drawBars(b.ts.map((x) => x / 1000), b.tokens, 'tokens');
+        }
+      }).catch(() => { /* keep the fallback chart */ });
+    }
+  }
+
+  // Fallback: bucket recentMessages timestamps (count per bin) when token
+  // buckets aren't available yet.
+  function drawMessageFallback(s) {
     const ts = (s.recentMessages || []).map((m) => m.ts).filter(Boolean).sort((a, b) => a - b);
     if (ts.length < 2) {
       $chartBox.replaceChildren(el('div', 'empty', 'Not enough data to chart yet.'));
@@ -992,10 +1025,10 @@ const Monitor = (() => {
       if (idx >= buckets) idx = buckets - 1;
       ys[idx] += 1;
     }
-    drawBars(xs.map((x) => x / 1000), ys);
+    drawBars(xs.map((x) => x / 1000), ys, 'messages');
   }
 
-  function drawBars(xSec, ys) {
+  function drawBars(xSec, ys, label = 'tokens') {
     const w = $chartBox.clientWidth || 800;
     const css = getComputedStyle(document.documentElement);
     const accent = (css.getPropertyValue('--accent') || '#d97757').trim();
@@ -1012,7 +1045,7 @@ const Monitor = (() => {
       series: [
         {},
         {
-          label: 'messages',
+          label,
           stroke: accent,
           fill: hexToRgba(accent, 0.35),
           paths: uPlot.paths.bars({ size: [0.7, 40] }),

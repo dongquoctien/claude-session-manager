@@ -87,6 +87,32 @@ test('/api/session 404 for unknown id', async () => {
   assert.equal(r.status, 404);
 });
 
+test('/api/session attaches tokenBuckets (tokens-over-time) for the chart', async () => {
+  // Seed a conversation with two usage-bearing entries at distinct timestamps.
+  const id = 'cccc1111-2222-3333-4444-555566667777';
+  const t0 = new Date('2026-05-19T10:00:00Z').toISOString();
+  const t1 = new Date('2026-05-19T10:10:00Z').toISOString();
+  writeConv('D--proj-chart', id, [
+    { type: 'user', timestamp: t0, cwd: os.tmpdir(), gitBranch: 'main', message: { content: 'go' } },
+    { type: 'assistant', timestamp: t0, message: { role: 'assistant', model: 'claude-opus-4-7',
+      content: [{ type: 'text', text: 'a' }],
+      usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } },
+    { type: 'assistant', timestamp: t1, message: { role: 'assistant', model: 'claude-opus-4-7',
+      content: [{ type: 'text', text: 'b' }],
+      usage: { input_tokens: 200, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } },
+  ]);
+  const r = await fetch(url('/api/session?id=cccc1111'));
+  assert.equal(r.status, 200);
+  const { session } = await r.json();
+  assert.ok(session.tokenBuckets, 'tokenBuckets present');
+  const { ts, tokens } = session.tokenBuckets;
+  assert.ok(Array.isArray(ts) && Array.isArray(tokens), 'parallel arrays');
+  assert.equal(ts.length, tokens.length);
+  assert.ok(tokens.length >= 2, 'two usage entries -> chartable buckets');
+  // total bucketed tokens == grand total (100+50 + 200)
+  assert.equal(tokens.reduce((a, b) => a + b, 0), 350);
+});
+
 test('/api/stream emits an SSE snapshot event', async () => {
   // Use raw http so we can read the streaming body incrementally.
   const { port } = server.address();

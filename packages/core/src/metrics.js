@@ -53,6 +53,35 @@ export function estimateCost(t, model) {
   );
 }
 
+/**
+ * Bucket a per-entry token series into a fixed number of equal time bins, for a
+ * tokens-over-time bar chart. Each output point is the SUM of tokens whose
+ * timestamp falls in that bin. Returns parallel arrays (bin-start ms, tokens).
+ * Empty/short input returns empty arrays so the caller can show a placeholder.
+ * @param {{ts:number, tokens:number}[]} series
+ * @param {number} [bucketCount=32]
+ * @returns {{ ts: number[], tokens: number[] }}
+ */
+export function bucketTokenSeries(series, bucketCount = 32) {
+  if (!Array.isArray(series) || series.length < 2) return { ts: [], tokens: [] };
+  const pts = series.filter((p) => p && Number.isFinite(p.ts)).sort((a, b) => a.ts - b.ts);
+  if (pts.length < 2) return { ts: [], tokens: [] };
+  const min = pts[0].ts;
+  const max = pts[pts.length - 1].ts;
+  const span = Math.max(1, max - min);
+  const n = Math.max(1, bucketCount | 0);
+  const ts = new Array(n);
+  const tokens = new Array(n).fill(0);
+  for (let i = 0; i < n; i++) ts[i] = min + (span * i) / n;
+  for (const p of pts) {
+    let idx = Math.floor(((p.ts - min) / span) * n);
+    if (idx >= n) idx = n - 1; // the max-ts point lands in the last bin
+    if (idx < 0) idx = 0;
+    tokens[idx] += p.tokens || 0;
+  }
+  return { ts, tokens };
+}
+
 // --- activity classification ----------------------------------------------
 
 /** How long after the last entry a session is still considered "active". */
@@ -159,6 +188,7 @@ export function isActive(m, now = Date.now()) {
  * @property {{role:string, text:string, ts:number}[]} recentMessages last ~10
  * @property {string[]} modifiedFiles  distinct files written/edited
  * @property {number[]} entryTimestamps epoch ms per entry (for charts), capped
+ * @property {{ts:number, tokens:number}[]} tokenSeries per-entry token total over time, capped
  */
 
 /** @returns {Metrics} */
@@ -178,6 +208,7 @@ function emptyMetrics() {
     recentMessages: [],
     modifiedFiles: [],
     entryTimestamps: [],
+    tokenSeries: [],
   };
 }
 
@@ -252,10 +283,18 @@ function applyEntry(m, d) {
   // Accumulate token usage.
   const u = msg.usage;
   if (u && typeof u === 'object') {
-    m.tokens.input += u.input_tokens || 0;
-    m.tokens.output += u.output_tokens || 0;
-    m.tokens.cacheCreation += u.cache_creation_input_tokens || 0;
-    m.tokens.cacheRead += u.cache_read_input_tokens || 0;
+    const din = u.input_tokens || 0;
+    const dout = u.output_tokens || 0;
+    const dcw = u.cache_creation_input_tokens || 0;
+    const dcr = u.cache_read_input_tokens || 0;
+    m.tokens.input += din;
+    m.tokens.output += dout;
+    m.tokens.cacheCreation += dcw;
+    m.tokens.cacheRead += dcr;
+    // Per-entry token total over time, for the Monitor chart. Only recorded
+    // when the entry carried a timestamp (ts > 0) so it can be bucketed.
+    const delta = din + dout + dcw + dcr;
+    if (ts && delta > 0) m.tokenSeries.push({ ts, tokens: delta });
   }
 
   if (type === 'user') {
@@ -335,6 +374,7 @@ function finalize(m) {
   if (m.recentTools.length > MAX_RECENT_TOOLS) m.recentTools = m.recentTools.slice(-MAX_RECENT_TOOLS);
   if (m.recentMessages.length > MAX_RECENT_MESSAGES) m.recentMessages = m.recentMessages.slice(-MAX_RECENT_MESSAGES);
   if (m.entryTimestamps.length > MAX_ENTRY_TIMESTAMPS) m.entryTimestamps = m.entryTimestamps.slice(-MAX_ENTRY_TIMESTAMPS);
+  if (m.tokenSeries.length > MAX_ENTRY_TIMESTAMPS) m.tokenSeries = m.tokenSeries.slice(-MAX_ENTRY_TIMESTAMPS);
   m.totalMessages = m.userMessages + m.assistantMessages;
   m.costUSD = estimateCost(m.tokens, m.model);
 }
@@ -415,6 +455,7 @@ function cloneMetrics(m) {
     recentMessages: m.recentMessages.slice(),
     modifiedFiles: m.modifiedFiles.slice(),
     entryTimestamps: m.entryTimestamps.slice(),
+    tokenSeries: m.tokenSeries.slice(),
   };
   if (m._lastMeaningful) {
     Object.defineProperty(c, '_lastMeaningful', {
