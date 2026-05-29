@@ -1414,13 +1414,15 @@ const OfficePro = (() => {
       kind: 'lounge', activity: 'lounge', ...LOUNGE,
       door: { x: cx, y: cy },              // "door" = lounge centre (already inside)
       groups: (() => {
-        // Three concentric clusters split vertically — waiting at the top by
-        // the meeting table, thinking in the middle, idle at the sofa below.
-        // Each gets a unique phase so the "first" slot of each ring lands at
-        // a different angle and the vertical line through cx isn't crowded.
-        // Rings are sized so nameplates (~60px wide) clear each other.
+        // Three concentric clusters split vertically — waiting around the
+        // meeting table (upper, but below the TV), thinking in the middle,
+        // idle at the sofa below. Each gets a unique phase so the "first"
+        // slot of each ring lands at a different angle and the vertical line
+        // through cx isn't crowded. Rings are sized so nameplates (~60px
+        // wide) clear each other. The waiting ring used to reach into the
+        // TV — keep its top below the TV bezel (~y=200 in lounge coords).
         const base = {
-          waiting:  ringGen(6, 140, 62, -150, 0),
+          waiting:  ringGen(6, 140, 56,  -90, 0),
           thinking: ringGen(4, 170, 50,    0, Math.PI / 4),
           idle:     ringGen(4, 120, 48,  150, Math.PI / 2),
         };
