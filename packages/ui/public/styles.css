@@ -943,7 +943,7 @@ html, body {
   --room-tint: var(--text-dim);
   display: flex;
   flex-direction: column;
-  min-height: 170px;          /* grows with content — no internal scroll */
+  min-height: 230px;          /* grows with content — no internal scroll */
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-top: 3px solid var(--room-tint);
