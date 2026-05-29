@@ -148,7 +148,9 @@ html, body {
 
 /* --- custom checkbox (replaces the browser default everywhere) --- */
 .toggle input[type="checkbox"],
-.chip-check input[type="checkbox"] {
+.chip-check input[type="checkbox"],
+.row-check,
+.group-check {
   appearance: none;
   -webkit-appearance: none;
   margin: 0;
@@ -163,15 +165,21 @@ html, body {
   transition: background 0.12s, border-color 0.12s;
 }
 .toggle input[type="checkbox"]:hover,
-.chip-check input[type="checkbox"]:hover { border-color: var(--accent-dim); }
+.chip-check input[type="checkbox"]:hover,
+.row-check:hover,
+.group-check:hover { border-color: var(--accent-dim); }
 .toggle input[type="checkbox"]:checked,
-.chip-check input[type="checkbox"]:checked {
+.chip-check input[type="checkbox"]:checked,
+.row-check:checked,
+.group-check:checked {
   background: var(--accent);
   border-color: var(--accent);
 }
 /* The check mark, drawn with a rotated border (no image/font needed). */
 .toggle input[type="checkbox"]:checked::after,
-.chip-check input[type="checkbox"]:checked::after {
+.chip-check input[type="checkbox"]:checked::after,
+.row-check:checked::after,
+.group-check:checked::after {
   content: "";
   position: absolute;
   left: 4px;
@@ -182,8 +190,24 @@ html, body {
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
+/* Indeterminate (some-but-not-all rows in a group): a dash, not a tick. */
+.group-check:indeterminate {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.group-check:indeterminate::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: 6px;
+  height: 2px;
+  background: var(--on-accent);
+}
 .toggle input[type="checkbox"]:focus-visible,
-.chip-check input[type="checkbox"]:focus-visible {
+.chip-check input[type="checkbox"]:focus-visible,
+.row-check:focus-visible,
+.group-check:focus-visible {
   outline: 2px solid var(--accent-dim);
   outline-offset: 1px;
 }
@@ -467,36 +491,23 @@ html, body {
 .row-del:hover { color: var(--err); opacity: 1; }
 
 /* --- multi-select --- */
-/* Checkboxes exist in the DOM always (so selection state survives re-render)
-   but are hidden until the user turns on Select mode (#list.select-mode). */
+/* The box styling (border, fill, tick) is shared with the system checkboxes
+   above so it matches the theme. Here we only handle visibility + the dimmed
+   resting state. Checkboxes stay in the DOM always (so selection survives a
+   re-render) but are hidden until Select mode is on (#list.select-mode). */
 .row-check, .group-check { display: none; }
 .list.select-mode .row-check,
 .list.select-mode .group-check { display: inline-block; }
 
 .row-check {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  cursor: pointer;
-  accent-color: var(--accent);
-  opacity: 0.5;
-  transition: opacity 0.12s;
+  opacity: 0.55; /* unobtrusive until hovered/checked, like the row star */
+  transition: opacity 0.12s, background 0.12s, border-color 0.12s;
 }
-.row:hover .row-check { opacity: 0.85; }
-.row-check:checked,
-.row.selected .row-check { opacity: 1; }
+.row:hover .row-check { opacity: 0.9; }
+.row-check:checked { opacity: 1; }
 .row.selected {
   background: var(--bg-row-hover);
   border-color: var(--accent);
-}
-.group-check {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  cursor: pointer;
-  accent-color: var(--accent);
 }
 
 /* Multi-select switch (sliding toggle, sits in the filterbar). */
