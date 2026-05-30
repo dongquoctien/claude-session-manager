@@ -1416,3 +1416,183 @@ html, body {
 @media (max-width: 860px) {
   #office-classic { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* --- Agent popup: pixel-game info card ---
+   Mounted lazily in <body> the first time it's needed. The "pixel" feel is
+   built with stacked box-shadow steps rather than SVG/border-image so it
+   re-themes cleanly off the same CSS vars as the rest of the office. */
+
+/* Click area on a Pro avatar */
+.agent-clickable { cursor: pointer; }
+.agent-clickable:hover .agent-figure { filter: drop-shadow(0 0 4px var(--accent)); }
+.agent-clickable:focus-visible { outline: none; }
+.agent-clickable:focus-visible .agent-figure { filter: drop-shadow(0 0 4px var(--accent)); }
+
+/* Backdrop */
+.agent-popup-overlay {
+  position: fixed; inset: 0;
+  z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  animation: ap-fade 0.14s ease;
+}
+.agent-popup-overlay[hidden] { display: none; }
+@keyframes ap-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* The popup itself — pixel border via stacked box-shadow steps */
+.ap-popup {
+  position: relative;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  background: var(--bg-elev);
+  color: var(--text);
+  font-family: ui-monospace, Consolas, monospace;
+  /* Stair-stepped pixel border: 1px outer dark + 4px mid + 1px inner light */
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 0 0 5px var(--bg-elev),
+    0 0 0 7px var(--border),
+    0 8px 0 7px rgba(0, 0, 0, 0.4);
+  animation: ap-pop 0.16s cubic-bezier(0.2, 1.2, 0.4, 1);
+}
+@keyframes ap-pop {
+  from { transform: translateY(8px) scale(0.94); opacity: 0; }
+  to   { transform: translateY(0)    scale(1);    opacity: 1; }
+}
+
+/* Header bar */
+.ap-header {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--accent);
+  color: var(--on-accent);
+  padding: 6px 8px 6px 12px;
+  border-bottom: 2px solid var(--border);
+}
+.ap-title {
+  font-size: 14px; font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 270px;
+}
+.ap-btn-x {
+  flex: none;
+  width: 24px; height: 24px;
+  border: 0;
+  background: var(--err);
+  color: #fff;
+  font-family: inherit; font-size: 16px; font-weight: 700; line-height: 1;
+  cursor: pointer;
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.25),
+    0 2px 0 0 rgba(0, 0, 0, 0.35);
+}
+.ap-btn-x:hover { background: color-mix(in srgb, var(--err) 85%, #000); }
+.ap-btn-x:active { transform: translateY(2px); box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.25); }
+
+/* Body */
+.ap-body { padding: 14px; }
+
+.ap-toprow { display: flex; gap: 14px; align-items: flex-start; }
+.ap-avatar {
+  flex: none;
+  width: 96px; height: 96px;
+  display: flex; align-items: center; justify-content: center;
+  background:
+    repeating-linear-gradient(45deg, var(--bg) 0 6px, color-mix(in srgb, var(--bg) 92%, var(--accent)) 6px 12px);
+  box-shadow: inset 0 0 0 2px var(--border);
+  padding: 6px;
+}
+.ap-avatar > svg { width: 84px; height: 84px; overflow: visible; }
+.ap-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.ap-info-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.ap-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-size: 11px; font-weight: 600;
+}
+.ap-chip-activity { color: var(--accent); }
+.ap-chip-branch   { color: var(--text-dim); }
+.ap-info-line { color: var(--text-dim); font-size: 11px; }
+.ap-info-token, .ap-info-cost {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px; color: var(--text-dim);
+}
+.ap-info-token::after { content: '·'; margin: 0 6px; color: var(--border); }
+
+/* Speech bubble */
+.ap-bubble {
+  position: relative;
+  margin-top: 14px;
+  background: var(--bg);
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 12px; line-height: 1.4;
+  box-shadow: inset 0 0 0 2px var(--border);
+  min-height: 42px;
+}
+.ap-bubble-text {
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ap-bubble-tail {
+  position: absolute;
+  left: 28px; bottom: -8px;
+  width: 12px; height: 12px;
+  background: var(--bg);
+  box-shadow: 1px 1px 0 0 var(--border);
+  transform: rotate(45deg);
+}
+
+/* Inline error */
+.ap-error {
+  margin-top: 10px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--err) 18%, transparent);
+  color: var(--err);
+  font-size: 11px;
+  box-shadow: inset 0 0 0 1px var(--err);
+}
+
+/* Buttons row */
+.ap-btnrow { display: flex; gap: 12px; margin-top: 16px; justify-content: flex-end; }
+
+/* Chunky pixel button — 3-layer box-shadow for that 3D pixel feel */
+.ap-btn {
+  position: relative;
+  border: 0;
+  padding: 8px 18px;
+  font-family: inherit;
+  font-size: 13px; font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--on-accent);
+  cursor: pointer;
+  transition: transform 0.06s ease;
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.25),
+    0 4px 0 0 rgba(0, 0, 0, 0.45),
+    0 0 0 2px var(--border);
+}
+.ap-btn:active {
+  transform: translateY(3px);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.18),
+    0 1px 0 0 rgba(0, 0, 0, 0.45),
+    0 0 0 2px var(--border);
+}
+.ap-btn:focus-visible { outline: 2px solid var(--accent-dim); outline-offset: 3px; }
+.ap-btn[disabled] { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+.ap-btn-open  { background: var(--ok); }
+.ap-btn-open:hover  { background: color-mix(in srgb, var(--ok) 88%, #000); }
+.ap-btn-close { background: var(--accent-dim); }
+.ap-btn-close:hover { background: color-mix(in srgb, var(--accent-dim) 88%, #000); }
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-popup-overlay, .ap-popup { animation: none; }
+}

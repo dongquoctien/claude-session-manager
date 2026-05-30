@@ -2434,14 +2434,22 @@ const OfficePro = (() => {
   /** Build an avatar node: a little character + a name below + a bubble. */
   function makeAgent(s) {
     const name = shortName(s);
-    const node = el('div', 'agent');
+    const node = el('div', 'agent agent-clickable');
     node.dataset.id = s.id;
     node.title = name; // full name on hover
     node.appendChild(makeAgentSvg(s, !!s.active));
     node.appendChild(el('span', 'agent-name', clipName(name)));
     node.appendChild(el('div', 'bubble'));
+    // Click to open the pixel info popup for this session.
+    node.addEventListener('click', (e) => {
+      e.stopPropagation();
+      AgentPopup.open(s.id);
+    });
     return node;
   }
+
+  // Used by AgentPopup to render a 3x avatar of the session that was clicked.
+  function makeAvatarFor(s) { return makeAgentSvg(s, !!s.active); }
 
   // The office shows agents that are *working*, not the full history. Keep
   // sessions that are active or were touched within this window; the rest
@@ -2718,7 +2726,205 @@ const OfficePro = (() => {
   /** Re-pick bubbles now (e.g. chatter just toggled). */
   function refreshBubbles() { if (started) applyBubbles(); }
 
-  return { start, stop, update, redraw, refreshBubbles };
+  return { start, stop, update, redraw, refreshBubbles, makeAvatarFor };
+})();
+
+// --- agent popup: pixel-game info card opened by clicking an avatar -------
+// Singleton modal mounted into <body> the first time it's needed. Shows a
+// snapshot of the clicked session (avatar, project, activity, branch, model,
+// tokens, cost, latest message) and offers an Open button that reuses the
+// Sessions list's openSession() to spawn a terminal with claude --resume.
+
+const AgentPopup = (() => {
+  let $overlay = null;
+  let $title = null;
+  let $avatarSlot = null;
+  let $activity = null;
+  let $branch = null;
+  let $model = null;
+  let $tokens = null;
+  let $cost = null;
+  let $bubbleText = null;
+  let $btnOpen = null;
+  let $btnClose = null;
+  let $btnX = null;
+  let $error = null;
+  let currentId = null;
+  let currentSlug = null;
+  let lastSessions = [];
+
+  function findById(id) {
+    if (!id) return null;
+    return lastSessions.find((s) => s.id === id) || null;
+  }
+
+  function ensureMounted() {
+    if ($overlay) return;
+    $overlay = el('div', 'agent-popup-overlay');
+    $overlay.hidden = true;
+    $overlay.setAttribute('role', 'presentation');
+    const popup = el('div', 'ap-popup');
+    popup.setAttribute('role', 'dialog');
+    popup.setAttribute('aria-modal', 'true');
+    popup.setAttribute('aria-labelledby', 'ap-title');
+    // Header bar with title + X
+    const header = el('div', 'ap-header');
+    $title = el('span', 'ap-title');
+    $title.id = 'ap-title';
+    header.appendChild($title);
+    $btnX = el('button', 'ap-btn-x');
+    $btnX.type = 'button';
+    $btnX.setAttribute('aria-label', 'Close');
+    $btnX.textContent = '×';
+    header.appendChild($btnX);
+    popup.appendChild(header);
+    // Body
+    const body = el('div', 'ap-body');
+    const topRow = el('div', 'ap-toprow');
+    $avatarSlot = el('div', 'ap-avatar');
+    topRow.appendChild($avatarSlot);
+    const info = el('div', 'ap-info');
+    const row1 = el('div', 'ap-info-row');
+    $activity = el('span', 'ap-chip ap-chip-activity');
+    $branch   = el('span', 'ap-chip ap-chip-branch');
+    row1.appendChild($activity);
+    row1.appendChild($branch);
+    info.appendChild(row1);
+    $model  = el('div', 'ap-info-line');
+    $tokens = el('span', 'ap-info-token');
+    $cost   = el('span', 'ap-info-cost');
+    const row2 = el('div', 'ap-info-row');
+    row2.appendChild($tokens);
+    row2.appendChild($cost);
+    info.appendChild($model);
+    info.appendChild(row2);
+    topRow.appendChild(info);
+    body.appendChild(topRow);
+    // Speech bubble (recent message)
+    const bubble = el('div', 'ap-bubble');
+    $bubbleText = el('div', 'ap-bubble-text');
+    bubble.appendChild($bubbleText);
+    bubble.appendChild(el('div', 'ap-bubble-tail'));
+    body.appendChild(bubble);
+    // Inline error
+    $error = el('div', 'ap-error');
+    $error.hidden = true;
+    body.appendChild($error);
+    // Buttons row
+    const btnRow = el('div', 'ap-btnrow');
+    $btnOpen = el('button', 'ap-btn ap-btn-open');
+    $btnOpen.type = 'button';
+    $btnOpen.textContent = 'Open';
+    $btnClose = el('button', 'ap-btn ap-btn-close');
+    $btnClose.type = 'button';
+    $btnClose.textContent = 'Close';
+    btnRow.appendChild($btnOpen);
+    btnRow.appendChild($btnClose);
+    body.appendChild(btnRow);
+    popup.appendChild(body);
+    $overlay.appendChild(popup);
+    document.body.appendChild($overlay);
+
+    // Wire events
+    popup.addEventListener('click', (e) => e.stopPropagation());
+    $overlay.addEventListener('click', close);
+    $btnX.addEventListener('click', close);
+    $btnClose.addEventListener('click', close);
+    $btnOpen.addEventListener('click', onOpen);
+    document.addEventListener('keydown', onKeydown);
+  }
+
+  function onKeydown(e) {
+    if (!$overlay || $overlay.hidden) return;
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+  }
+
+  function shortName(s) {
+    if (s.cwd) return s.cwd.replace(/[\\/]+$/, '').replace(/^.*[\\/]/, '') || s.projectLabel || s.id.slice(0, 8);
+    return s.projectLabel || s.id.slice(0, 8);
+  }
+  function lastText(s) {
+    const msgs = s.recentMessages || [];
+    const last = msgs[msgs.length - 1];
+    if (!last || !last.text) return '';
+    const t = last.text.trim();
+    return t.length > 140 ? t.slice(0, 140) + '…' : t;
+  }
+  function fmtTokens(n) {
+    n = n || 0;
+    if (n < 1000) return n + '';
+    if (n < 1_000_000) return (n / 1000).toFixed(n < 10_000 ? 1 : 0) + 'k';
+    return (n / 1_000_000).toFixed(1) + 'M';
+  }
+  function fmtCost(c) { return '$' + (c || 0).toFixed(c >= 1 ? 2 : 3); }
+
+  function render(s) {
+    $title.textContent = shortName(s);
+    // Avatar (3x scale via CSS)
+    $avatarSlot.replaceChildren();
+    if (OfficePro.makeAvatarFor) {
+      const svg = OfficePro.makeAvatarFor(s);
+      $avatarSlot.appendChild(svg);
+    }
+    $activity.textContent = '⚡ ' + (s.activity || 'idle');
+    $activity.dataset.activity = s.activity || 'idle';
+    $branch.textContent = (s.branch ? '⎇ ' + s.branch : '⎇ —');
+    $model.textContent = s.model || '(model unknown)';
+    $tokens.textContent = fmtTokens(s.totalTokens) + ' tokens';
+    $cost.textContent = fmtCost(s.costUSD);
+    $bubbleText.textContent = lastText(s) || '(no recent message)';
+    $error.hidden = true;
+    $error.textContent = '';
+  }
+
+  async function onOpen() {
+    const s = findById(currentId);
+    if (!s) { $error.textContent = 'Session no longer exists.'; $error.hidden = false; return; }
+    $btnOpen.disabled = true;
+    try {
+      const skip = document.getElementById('skipperms');
+      await openSession(s.id, {
+        skipPermissions: skip ? skip.checked : true,
+        slug: s.projectSlug,
+      });
+      close();
+    } catch (err) {
+      $error.textContent = String(err && err.message || err);
+      $error.hidden = false;
+    } finally {
+      $btnOpen.disabled = false;
+    }
+  }
+
+  function open(id) {
+    ensureMounted();
+    const s = findById(id);
+    if (!s) return; // session vanished between snapshot + click
+    currentId = id;
+    currentSlug = s.projectSlug;
+    render(s);
+    $overlay.hidden = false;
+    // focus first button for keyboard users
+    setTimeout(() => $btnClose && $btnClose.focus(), 0);
+  }
+
+  function close() {
+    if (!$overlay) return;
+    $overlay.hidden = true;
+    currentId = null;
+    currentSlug = null;
+  }
+
+  function setSessions(sessions) {
+    lastSessions = sessions || [];
+    if ($overlay && !$overlay.hidden && currentId) {
+      const s = findById(currentId);
+      if (s) render(s);
+      else close();
+    }
+  }
+
+  return { open, close, setSessions };
 })();
 
 // --- office: classic mode (simple 3x3 grid of room cards) -----------------
@@ -2958,7 +3164,11 @@ const Office = (() => {
     renderer().start();
     startPolling();
   }
-  function update(sessions) { latest = sessions; renderer().update(sessions); }
+  function update(sessions) {
+    latest = sessions;
+    renderer().update(sessions);
+    AgentPopup.setSessions(sessions);
+  }
   function redraw() { renderer().redraw(); }
   // Called when leaving the Office tab — stop spawning chatter server-side.
   function leave() { active = false; stopPolling(); }
