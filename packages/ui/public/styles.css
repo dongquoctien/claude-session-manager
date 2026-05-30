@@ -1596,3 +1596,66 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   .agent-popup-overlay, .ap-popup { animation: none; }
 }
+
+/* --- Pinball action shouts: pixel-arcade text that pops up above the
+   cabinet while somebody is playing ("ARE YOU READY!!!", "KO!", "COMBO!",
+   etc.). Spawned by OfficePro.spawnPinballShout() and removed after the
+   keyframe finishes. */
+.pinball-shouts {
+  position: absolute;
+  pointer-events: none;
+  z-index: 3;
+}
+.pinball-shout {
+  position: absolute;
+  top: 0;
+  font-family: ui-monospace, Consolas, monospace;
+  font-weight: 900;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* "Chunky pixel" feel: multi-layer text-shadow stair-steps the outline so
+     it reads as a sprite-rendered glyph rather than smooth typography. */
+  text-shadow:
+    1px 0  0 var(--shout-shadow, #2b2620),
+    2px 0  0 var(--shout-shadow, #2b2620),
+    0  1px 0 var(--shout-shadow, #2b2620),
+    1px 1px 0 var(--shout-shadow, #2b2620),
+    2px 1px 0 var(--shout-shadow, #2b2620),
+    0  2px 0 var(--shout-shadow, #2b2620),
+    1px 2px 0 var(--shout-shadow, #2b2620),
+    2px 2px 0 var(--shout-shadow, #2b2620),
+    0  3px 6px rgba(0, 0, 0, 0.45);
+  transform-origin: center;
+  animation: pinball-shout 1.45s cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
+  /* When more than one shout is alive at a time the later ones sit slightly
+     lower so they don't perfectly cover each other. */
+  transition: top 0.1s linear;
+}
+@keyframes pinball-shout {
+  0%   { transform: translateY(8px) scale(0.3) rotate(-6deg); opacity: 0; }
+  18%  { transform: translateY(0)   scale(1.25) rotate(4deg); opacity: 1; }
+  32%  { transform: translateY(-4px) scale(1.05) rotate(-3deg); }
+  50%  { transform: translateY(-6px) scale(1.1) rotate(2deg);  opacity: 1; }
+  100% { transform: translateY(-22px) scale(1.05) rotate(0); opacity: 0; }
+}
+/* Per-message colour palette */
+.pinball-shout.ps-red     { color: #ff5a4a; }
+.pinball-shout.ps-yellow  { color: #ffd24a; }
+.pinball-shout.ps-green   { color: #5fe39a; }
+.pinball-shout.ps-blue    { color: #6ab4ff; }
+.pinball-shout.ps-orange  { color: #ff9a3c; }
+.pinball-shout.ps-magenta { color: #d97acc; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pinball-shout {
+    animation: pinball-shout-quiet 1.45s linear forwards;
+  }
+  @keyframes pinball-shout-quiet {
+    0%   { opacity: 0; }
+    20%  { opacity: 1; }
+    80%  { opacity: 1; }
+    100% { opacity: 0; }
+  }
+}
