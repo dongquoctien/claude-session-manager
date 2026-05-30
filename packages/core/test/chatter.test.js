@@ -52,7 +52,10 @@ test('returns null for unparseable / empty input', () => {
 });
 
 test('caps each language to a reasonable batch size', () => {
-  const many = Array.from({ length: 50 }, (_, i) => `line ${i}`);
+  // 200 lines in → cap kicks in at MAX_PER_LANG (50 — bumped from 20 so the
+  // live pool can give the UI a wider variety set).
+  const many = Array.from({ length: 200 }, (_, i) => `line ${i}`);
   const out = parseChatter(JSON.stringify({ en: many }));
-  assert.ok(out.en.length <= 20, `capped, got ${out.en.length}`);
+  assert.ok(out.en.length <= 50, `capped, got ${out.en.length}`);
+  assert.equal(out.en.length, 50);
 });

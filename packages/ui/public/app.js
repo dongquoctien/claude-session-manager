@@ -1199,6 +1199,15 @@ const CHATTER_FALLBACK = {
     'Merge conflict again? Beautiful.', 'It works on my machine.',
     'Coffee first, then the stack trace.', 'That PR is a masterpiece, honestly.',
     'Why is the build red AGAIN.', 'Naming things is the hardest part.',
+    'Caching. Off-by-one. Time zones.', 'I\'ll add a comment later.',
+    'Reverting that commit, sorry team.', 'Standup in 2, what did I do yesterday?',
+    'It\'s not a hack, it\'s pragmatic.', 'Did you try turning it off and on?',
+    'The legacy code is calling us.', 'Need more coffee before code review.',
+    'TODO: fix this TODO from 2019.', 'Anyone seen my rubber duck?',
+    'Linter is screaming at me again.', 'One more "quick fix" before lunch.',
+    'The docs say one thing, the code another.', 'My ssh keys disappeared again.',
+    'Hot reload, cold debugging.', 'Friday deploy, what could go wrong.',
+    'Senior dev, junior bugs.', 'Sprint planning: nothing is planned.',
   ],
   ko: [
     '일단 배포하고 고치죠.', '이 버그 또 뭐야…',
@@ -1207,6 +1216,15 @@ const CHATTER_FALLBACK = {
     '또 머지 컨플릭트야?', '제 컴퓨터에선 됩니다.',
     '커피부터 마시고 스택트레이스.', '그 PR 진짜 잘 짰던데.',
     '빌드 왜 또 빨개.', '변수 이름 짓기가 제일 어렵다.',
+    '캐시, off-by-one, 타임존.', '주석은 나중에 달게요.',
+    '그 커밋 되돌립니다, 죄송.', '스탠드업 2분 남았는데 뭐 했더라.',
+    '핵 아니고 실용적인 거예요.', '재부팅 해봤어?',
+    '레거시 코드가 부른다.', '코드 리뷰 전에 커피 한 잔.',
+    'TODO: 2019년 TODO 정리하기.', '내 러버덕 본 사람?',
+    '린터가 또 소리 지른다.', '점심 전에 "잠깐 수정" 한 번만 더.',
+    '문서는 그렇게, 코드는 이렇게.', 'SSH 키 또 사라졌네.',
+    '핫 리로드, 콜드 디버깅.', '금요일 배포, 뭐가 잘못되겠어.',
+    '시니어 개발자, 주니어 버그.', '스프린트 계획: 계획 없음.',
   ],
   ja: [
     'とりあえずマージしよう。', 'このバグ、沼すぎる…',
@@ -1215,6 +1233,15 @@ const CHATTER_FALLBACK = {
     'またコンフリクト？最高。', '自分の環境では動くよ。',
     'まずコーヒー、それからログ。', 'あのPRは正直すごい。',
     'なんでまたビルド赤いの。', '命名がいちばん難しい。',
+    'キャッシュ、オフバイワン、タイムゾーン。', 'コメントは後で書く。',
+    'あのコミット戻します、ごめん。', 'スタンドアップ2分前、昨日何した？',
+    'ハックじゃない、現実的なんです。', '再起動した？',
+    'レガシーコードが呼んでる。', 'レビュー前にコーヒー一杯。',
+    'TODO: 2019年のTODOを片付ける。', 'うちのラバーダック見た？',
+    'またリンタが叫んでる。', '昼休み前に「ちょい修正」もう一回。',
+    'ドキュメントとコードが違う。', 'SSHキーまた消えた。',
+    'ホットリロード、コールドデバッグ。', '金曜デプロイ、何が起こる？',
+    'シニア開発者、ジュニアバグ。', 'スプリント計画：計画なし。',
   ],
   vi: [
     'Cứ deploy đi, lỗi sửa sau.', 'Bug này lằng nhằng phết.',
@@ -1223,6 +1250,15 @@ const CHATTER_FALLBACK = {
     'Lại conflict nữa hả trời.', 'Máy tôi chạy ngon mà.',
     'Cà phê đã rồi xem log.', 'Cái PR đó viết ngon đấy.',
     'Sao build lại đỏ nữa rồi.', 'Đặt tên biến là khó nhất.',
+    'Cache, off-by-one, time zone.', 'Comment để sau, giờ code đã.',
+    'Revert commit kia nhé, sorry team.', 'Standup 2 phút nữa, hôm qua làm gì nhỉ.',
+    'Không phải hack đâu, là pragmatic.', 'Đã thử tắt mở lại chưa?',
+    'Code cũ đang gọi tên chúng ta.', 'Code review thì phải có cà phê.',
+    'TODO: dọn TODO từ 2019.', 'Có ai thấy con vịt cao su của tôi không?',
+    'Linter lại la mắng rồi.', 'Sửa "nhanh thôi" lần nữa trước khi đi ăn.',
+    'Tài liệu nói một đằng, code làm một nẻo.', 'SSH key biến mất nữa rồi.',
+    'Hot reload, cold debugging.', 'Deploy thứ Sáu, có gì sai đâu nhỉ.',
+    'Senior dev, junior bug.', 'Sprint planning: chưa plan gì cả.',
   ],
 };
 
@@ -2705,7 +2741,7 @@ const OfficePro = (() => {
     buildFloor();
     updateDigitalClocks();
     applyBubbles();
-    rotateTimer = setInterval(() => { rotateOffset++; applyBubbles(); }, 5000);
+    rotateTimer = setInterval(() => { rotateOffset++; applyBubbles(); }, 8000);
     clockTimer  = setInterval(updateDigitalClocks, 30000);
     window.addEventListener('resize', fitFloor);
   }
@@ -3085,7 +3121,7 @@ const OfficeClassic = (() => {
     if (started) return;
     started = true;
     applyBubbles();
-    rotateTimer = setInterval(() => { rotateOffset++; applyBubbles(); }, 5000);
+    rotateTimer = setInterval(() => { rotateOffset++; applyBubbles(); }, 8000);
   }
   function stop() { if (rotateTimer) { clearInterval(rotateTimer); rotateTimer = null; } started = false; }
   function redraw() {

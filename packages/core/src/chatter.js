@@ -23,8 +23,35 @@ export const CHATTER_LANGS = Object.freeze(['en', 'ko', 'ja', 'vi']);
 
 /** Lines longer than this are dropped (bubbles are small). */
 const MAX_LINE_LEN = 70;
-/** Per-language cap so one batch can't balloon the payload. */
-const MAX_PER_LANG = 20;
+/** Per-language cap so one batch can't balloon the payload. Bumped from 20
+ *  to 50 so a single live generation can give the UI a wider variety pool
+ *  and the rotation feels less obviously repeating. */
+const MAX_PER_LANG = 50;
+/** Themes injected into the prompt at random so each generation pulls from
+ *  a different angle of the dev workday — Claude is deterministic enough
+ *  that a fixed prompt returns nearly identical batches each time. */
+const CHATTER_THEMES = [
+  'late-night debugging',
+  'Friday deploy nerves',
+  'code review banter',
+  'merge conflict frustration',
+  'tests randomly failing',
+  'standup ramble',
+  'caffeine and stack traces',
+  'pair programming',
+  'refactor rabbit holes',
+  'production incident war room',
+  'sprint planning chaos',
+  'rubber duck conversations',
+  'legacy code archaeology',
+  'docs vs reality',
+  'CI is red again',
+  'imposter syndrome',
+  'shipping at 5 pm',
+  'feature flag confusion',
+  'database migration anxiety',
+  'on-call horror stories',
+];
 
 let _claudeBinCache; // undefined = not probed, string|null = result
 
@@ -45,19 +72,29 @@ export function resolveClaudeBin() {
   return _claudeBinCache;
 }
 
-/** The instruction we hand to `claude -p`. Asks for strict JSON, no prose. */
+/** The instruction we hand to `claude -p`. Asks for strict JSON, no prose.
+ *  Pulls in a random pair of CHATTER_THEMES so each call returns a fresh
+ *  batch — without the variation the model returns nearly identical lines
+ *  every time the prompt is asked. */
 function buildPrompt() {
+  // Pick two distinct themes so each generation has a clear angle.
+  const pool = CHATTER_THEMES.slice();
+  const idx1 = Math.floor(Math.random() * pool.length);
+  const t1 = pool.splice(idx1, 1)[0];
+  const t2 = pool[Math.floor(Math.random() * pool.length)];
   return [
     'You are seeding flavor text for a playful "AI office" visualization where',
     'cartoon dev agents chat in speech bubbles. Output ONLY a JSON object, no',
     'prose, no markdown fences. Shape:',
     '{"en":[...],"ko":[...],"ja":[...],"vi":[...]}',
-    'Each array: 12 short water-cooler one-liners in that language (English,',
+    'Each array: 24 short water-cooler one-liners in that language (English,',
     'Korean, Japanese, Vietnamese). Tone: software coworkers — light teasing,',
     'self-deprecating, occasional praise or griping about code/PRs/tests/bugs/',
     'merge conflicts. Keep each line under 60 characters. No emoji. No real',
     'insults. Make each language idiomatic and natural, not translated word for',
-    'word. Return the JSON object only.',
+    `word. Lean the batch into these moods: "${t1}" and "${t2}". Don't repeat`,
+    'lines across languages — write each language fresh, not as a translation.',
+    'Return the JSON object only.',
   ].join(' ');
 }
 
