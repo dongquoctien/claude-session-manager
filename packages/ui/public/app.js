@@ -1529,6 +1529,203 @@ const OfficePro = (() => {
     return g;
   }
 
+  // --- Extra room props (a real lived-in room has more than a desk) -----
+  // Each helper returns a small SVG sized to its viewBox. roomFurniture(def)
+  // sprinkles 3–5 of these around the room so it doesn't look 70%-empty.
+
+  function rpBookshelf(w = 50, h = 56) {
+    const g = svgEl('svg', { viewBox: '0 0 50 56', class: 'desk', width: w, height: h });
+    g.appendChild(svgEl('rect', { x: 0, y: 0, width: 50, height: 56, rx: 2, fill: '#5a3f28' }));
+    const cols = ['#c25d6b','#5b8def','#5fae8c','#e0a458','#c08adb','#8d6a4a','#3a4a63','#7fc8a0'];
+    for (let row = 0; row < 3; row++) {
+      const y = 4 + row * 17;
+      g.appendChild(svgEl('rect', { x: 2, y: y + 13, width: 46, height: 2, fill: '#6b4f36' }));  // shelf board
+      let x = 3;
+      while (x < 46) {
+        const bw = 3 + (row + x) % 4; // 3–6 px wide
+        const bh = 10 + ((x * 3) % 4);
+        g.appendChild(svgEl('rect', { x, y: y + 13 - bh, width: bw, height: bh, rx: 0.5, fill: cols[(row + x) % cols.length] }));
+        x += bw + 0.5;
+      }
+    }
+    return g;
+  }
+  function rpServerRack(w = 32, h = 64) {
+    const g = svgEl('svg', { viewBox: '0 0 32 64', class: 'desk', width: w, height: h });
+    g.appendChild(svgEl('rect', { x: 0, y: 0, width: 32, height: 64, rx: 2, fill: '#1c1f24' }));
+    g.appendChild(svgEl('rect', { x: 2, y: 2, width: 28, height: 60, rx: 1, fill: '#11131a' }));
+    for (let i = 0; i < 6; i++) {
+      const y = 5 + i * 9;
+      g.appendChild(svgEl('rect', { x: 4, y, width: 24, height: 7, rx: 1, fill: '#22303a' }));
+      // LEDs
+      g.appendChild(svgEl('circle', { cx: 7, cy: y + 3.5, r: 1, fill: i % 2 ? '#7fc8a0' : '#e0a458' }));
+      g.appendChild(svgEl('circle', { cx: 11, cy: y + 3.5, r: 1, fill: '#5b8def' }));
+      // vent slits
+      for (let v = 0; v < 4; v++) g.appendChild(svgEl('rect', { x: 16 + v * 2.4, y: y + 2, width: 1, height: 3, fill: '#0f1720' }));
+    }
+    return g;
+  }
+  function rpWhiteboard(w = 60, h = 36) {
+    const g = svgEl('svg', { viewBox: '0 0 60 36', class: 'desk', width: w, height: h });
+    g.appendChild(svgEl('rect', { x: 0, y: 0, width: 60, height: 36, rx: 1.5, fill: '#cccccc' }));    // frame
+    g.appendChild(svgEl('rect', { x: 2, y: 2, width: 56, height: 30, fill: '#fafafa' }));              // board
+    // doodles
+    g.appendChild(svgEl('path', { d: 'M6 10h14M6 14h10M6 18h18', stroke: '#5b8def', 'stroke-width': 1, fill: 'none', 'stroke-linecap': 'round' }));
+    g.appendChild(svgEl('rect', { x: 30, y: 6, width: 14, height: 8, fill: 'none', stroke: '#c25d6b', 'stroke-width': 1 }));
+    g.appendChild(svgEl('path', { d: 'M30 22l6 4 8-6 4 4', stroke: '#5fae8c', 'stroke-width': 1, fill: 'none', 'stroke-linecap': 'round' }));
+    g.appendChild(svgEl('rect', { x: 2, y: 32, width: 56, height: 2, fill: '#9a9286' }));              // tray
+    return g;
+  }
+  function rpPlant(w = 22, h = 30) {
+    const g = svgEl('svg', { viewBox: '0 0 22 30', class: 'desk', width: w, height: h });
+    g.appendChild(svgEl('path', { d: 'M11 18C5 18 2 12 2 5c5 0 9 4 9 13zM11 18c6 0 9-6 9-13-5 0-9 4-9 13z', fill: '#5fae8c' }));
+    g.appendChild(svgEl('path', { d: 'M11 12c-4 0-6-3-6-7 3 0 6 2 6 7zM11 12c4 0 6-3 6-7-3 0-6 2-6 7z', fill: '#7fc8a0', opacity: 0.8 }));
+    g.appendChild(svgEl('path', { d: 'M6 18h10l-1.5 10H7.5z', fill: '#b06a4a' }));
+    return g;
+  }
+  function rpLamp(w = 18, h = 36) {
+    const g = svgEl('svg', { viewBox: '0 0 18 36', class: 'desk', width: w, height: h });
+    g.appendChild(svgEl('ellipse', { cx: 9, cy: 34, rx: 6, ry: 1.5, fill: '#2b2620' }));      // base
+    g.appendChild(svgEl('rect', { x: 8, y: 12, width: 2, height: 22, fill: '#5a4636' }));     // pole
+    g.appendChild(svgEl('path', { d: 'M2 12 L16 12 L13 4 L5 4 z', fill: '#e0a458' }));        // shade
+    g.appendChild(svgEl('circle', { cx: 9, cy: 12, r: 1.5, fill: '#fff1c4' }));               // bulb glow
+    return g;
+  }
+  function rpRug(w = 80, h = 32, tint = '#c25d6b') {
+    const g = svgEl('svg', { viewBox: '0 0 80 32', class: 'desk', width: w, height: h });
+    g.appendChild(svgEl('ellipse', { cx: 40, cy: 16, rx: 38, ry: 14, fill: tint, opacity: 0.55 }));
+    g.appendChild(svgEl('ellipse', { cx: 40, cy: 16, rx: 30, ry: 10, fill: 'none', stroke: '#fff', 'stroke-width': 0.8, 'stroke-dasharray': '3 3', opacity: 0.5 }));
+    return g;
+  }
+  function rpStickyBoard(w = 28, h = 28) {
+    const g = svgEl('svg', { viewBox: '0 0 28 28', class: 'desk', width: w, height: h });
+    g.appendChild(svgEl('rect', { x: 0, y: 0, width: 28, height: 28, rx: 1, fill: '#5a4636' })); // cork
+    const cols = ['#fde68a','#fca5a5','#a7f3d0','#bfdbfe','#fbcfe8'];
+    const cells = [[2,2],[12,2],[22,2],[2,12],[12,12],[2,22]];
+    cells.forEach(([x,y], i) => g.appendChild(svgEl('rect', { x, y, width: 5, height: 5, fill: cols[i % cols.length] })));
+    return g;
+  }
+  function rpCoffee(w = 12, h = 14) {
+    const g = svgEl('svg', { viewBox: '0 0 12 14', class: 'desk', width: w, height: h });
+    g.appendChild(svgEl('rect', { x: 2, y: 4, width: 7, height: 8, rx: 1, fill: '#fafafa' }));     // cup
+    g.appendChild(svgEl('path', { d: 'M9 6c2 0 2 4 0 4', fill: 'none', stroke: '#fafafa', 'stroke-width': 1 }));
+    g.appendChild(svgEl('rect', { x: 3, y: 5, width: 5, height: 2, fill: '#5a3f28' }));            // coffee
+    g.appendChild(svgEl('path', { d: 'M4 3 q1 -2 0 -3 M6 3 q1 -2 0 -3', stroke: '#cccccc', 'stroke-width': 0.6, fill: 'none', opacity: 0.7 }));
+    return g;
+  }
+  function rpFiles(w = 24, h = 22) {
+    const g = svgEl('svg', { viewBox: '0 0 24 22', class: 'desk', width: w, height: h });
+    g.appendChild(svgEl('rect', { x: 1, y: 6, width: 22, height: 14, rx: 1, fill: '#e0a458' }));
+    g.appendChild(svgEl('rect', { x: 1, y: 4, width: 12, height: 4, rx: 0.5, fill: '#b97f2e' }));
+    g.appendChild(svgEl('rect', { x: 3, y: 9, width: 18, height: 1, fill: '#b97f2e' }));
+    g.appendChild(svgEl('rect', { x: 3, y: 12, width: 14, height: 1, fill: '#b97f2e' }));
+    g.appendChild(svgEl('rect', { x: 3, y: 15, width: 16, height: 1, fill: '#b97f2e' }));
+    return g;
+  }
+  function rpPoster(w = 32, h = 42, tint = '#5b8def') {
+    const g = svgEl('svg', { viewBox: '0 0 32 42', class: 'desk', width: w, height: h });
+    g.appendChild(svgEl('rect', { x: 0, y: 0, width: 32, height: 42, rx: 1, fill: '#1f2937' }));
+    g.appendChild(svgEl('rect', { x: 2, y: 2, width: 28, height: 38, fill: tint, opacity: 0.85 }));
+    g.appendChild(svgEl('circle', { cx: 16, cy: 18, r: 9, fill: 'none', stroke: '#fff', 'stroke-width': 1.4 }));
+    g.appendChild(svgEl('path', { d: 'M16 9 l3 9 -3 9 -3 -9 z', fill: '#fff', opacity: 0.9 }));
+    g.appendChild(svgEl('rect', { x: 6, y: 32, width: 20, height: 2, fill: '#fff' }));
+    return g;
+  }
+  function rpRouter(w = 30, h = 16) {
+    const g = svgEl('svg', { viewBox: '0 0 30 16', class: 'desk', width: w, height: h });
+    g.appendChild(svgEl('rect', { x: 0, y: 4, width: 30, height: 10, rx: 1.5, fill: '#22303a' }));
+    [4,8,12,16,20,24].forEach((cx, i) => g.appendChild(svgEl('circle', { cx, cy: 9, r: 1, fill: i % 2 ? '#7fc8a0' : '#5b8def' })));
+    g.appendChild(svgEl('path', { d: 'M6 4 l-2 -4 M14 4 l0 -4 M22 4 l2 -4', stroke: '#9a9286', 'stroke-width': 0.8, fill: 'none' }));
+    return g;
+  }
+  function rpClock(w = 22, h = 22) {
+    const g = svgEl('svg', { viewBox: '0 0 22 22', class: 'desk', width: w, height: h });
+    g.appendChild(svgEl('circle', { cx: 11, cy: 11, r: 10, fill: '#fafafa', stroke: '#2b2620', 'stroke-width': 1 }));
+    g.appendChild(svgEl('path', { d: 'M11 11 V4 M11 11 l5 3', stroke: '#2b2620', 'stroke-width': 1.4, 'stroke-linecap': 'round' }));
+    g.appendChild(svgEl('circle', { cx: 11, cy: 11, r: 0.8, fill: '#2b2620' }));
+    return g;
+  }
+  function rpFileCabinet(w = 28, h = 40) {
+    const g = svgEl('svg', { viewBox: '0 0 28 40', class: 'desk', width: w, height: h });
+    g.appendChild(svgEl('rect', { x: 0, y: 0, width: 28, height: 40, rx: 1.5, fill: '#6b7280' }));
+    for (let i = 0; i < 3; i++) {
+      const y = 3 + i * 12;
+      g.appendChild(svgEl('rect', { x: 2, y, width: 24, height: 10, rx: 1, fill: '#4b5563' }));
+      g.appendChild(svgEl('circle', { cx: 14, cy: y + 5, r: 1, fill: '#cccccc' }));
+    }
+    return g;
+  }
+  function rpStool(w = 18, h = 22) {
+    const g = svgEl('svg', { viewBox: '0 0 18 22', class: 'desk', width: w, height: h });
+    g.appendChild(svgEl('ellipse', { cx: 9, cy: 8, rx: 7, ry: 3, fill: '#a07a52' }));
+    g.appendChild(svgEl('rect', { x: 6, y: 9, width: 2, height: 10, fill: '#6b4f36' }));
+    g.appendChild(svgEl('rect', { x: 10, y: 9, width: 2, height: 10, fill: '#6b4f36' }));
+    return g;
+  }
+
+  /**
+   * Place extra furniture inside a room. Returns an array of
+   * { node, x, y } so caller can append each item at its own offset.
+   * Coordinates are room-local (0..RW × 0..RH). The main desk + label sit at
+   * the top centre, the door is on the lounge-facing edge, and avatars stand
+   * along the bottom — props avoid those zones.
+   */
+  function roomFurniture(activity, side, RW, RH) {
+    // helper to push { node, x, y }
+    const out = [];
+    const add = (node, x, y) => out.push({ node, x, y });
+    // the door is on the inner edge mid-height; avoid the strip around it.
+    const innerX = side === 'L' ? RW - 14 : 6;  // back wall = opposite side
+    const backLeft  = side === 'L' ? 8           : RW - 16;
+    const backRight = side === 'L' ? RW - 60     : 4;
+    switch (activity) {
+      case 'writing': // a coder's room: monitor desk (top), bookshelf along back wall,
+                      // lamp on the side, plant, sticky-notes board, coffee cup
+        add(rpBookshelf(56, 48), side === 'L' ? 8 : RW - 64, 56);
+        add(rpStickyBoard(28, 28), side === 'L' ? RW - 36 : 8, 50);
+        add(rpLamp(16, 30), side === 'L' ? RW - 24 : 8, 92);
+        add(rpPlant(22, 28), side === 'L' ? 12 : RW - 34, 150);
+        add(rpCoffee(12, 14), side === 'L' ? 100 : 60, 76);
+        break;
+      case 'reading': // library: tall bookshelves + reading lamp + stool + plant
+        add(rpBookshelf(46, 70), 8, 50);
+        add(rpBookshelf(46, 70), RW - 54, 50);
+        add(rpLamp(16, 32), side === 'L' ? RW - 30 : 12, 124);
+        add(rpStool(18, 20), RW / 2 + 22, 158);
+        add(rpPlant(20, 26), RW / 2 - 40, 152);
+        break;
+      case 'running': // ops room: server rack on back wall, router, files, plant
+        add(rpServerRack(28, 58), side === 'L' ? 10 : RW - 38, 58);
+        add(rpServerRack(28, 58), side === 'L' ? 42 : RW - 70, 64);
+        add(rpRouter(30, 14), side === 'L' ? RW - 44 : 12, 60);
+        add(rpFiles(22, 20), side === 'L' ? RW - 42 : 14, 88);
+        add(rpPlant(20, 26), side === 'L' ? 14 : RW - 34, 154);
+        break;
+      case 'searching': // detective vibe: whiteboard, sticky-notes, files, lamp
+        add(rpWhiteboard(64, 36), RW / 2 - 32, 60);
+        add(rpStickyBoard(24, 24), side === 'L' ? RW - 32 : 8, 104);
+        add(rpFiles(20, 18), side === 'L' ? 10 : RW - 30, 102);
+        add(rpLamp(16, 28), side === 'L' ? RW - 26 : 10, 134);
+        add(rpPlant(18, 24), RW / 2 - 9, 154);
+        break;
+      case 'browsing': // explorer vibe: poster, globe-desk (already), router, lamp
+        add(rpPoster(28, 38, '#c08adb'), side === 'L' ? 12 : RW - 40, 50);
+        add(rpRouter(28, 14), side === 'L' ? RW - 40 : 10, 78);
+        add(rpLamp(16, 30), side === 'L' ? RW - 28 : 10, 102);
+        add(rpPlant(22, 28), side === 'L' ? 14 : RW - 36, 150);
+        add(rpStickyBoard(22, 22), RW / 2 + 30, 132);
+        break;
+      case 'spawning': // orchestrator: file cabinet, whiteboard, plant, files
+        add(rpFileCabinet(26, 38), side === 'L' ? 10 : RW - 36, 60);
+        add(rpWhiteboard(52, 30), RW / 2 - 12, 56);
+        add(rpFiles(22, 20), side === 'L' ? RW - 38 : 14, 90);
+        add(rpStool(18, 20), RW / 2 + 30, 158);
+        add(rpPlant(20, 26), side === 'L' ? 14 : RW - 34, 150);
+        break;
+    }
+    return out;
+  }
+
   /** Build the static floor once: central lounge + 6 edge rooms + furniture. */
   function buildFloor() {
     if (built || !$floor) return;
@@ -1549,8 +1746,15 @@ const OfficePro = (() => {
     // Lounge props: meeting table (upper), sofa (lower), plants + vending (corners),
     // and two arcade cabinets at the bottom corners where idle agents go to play.
     const addProp = (svg, x, y) => { svg.style.cssText = `left:${x}px;top:${y}px`; lounge.appendChild(svg); };
-    addProp(loungeProp('table'), lz.w / 2 - 60, lz.h * 0.34);
-    addProp(loungeProp('sofa'), lz.w / 2 - 55, lz.h * 0.7);
+    // Pull the meeting table closer to the TV so the dead band between them
+    // collapses, and let the sofa sit a bit higher too.
+    addProp(loungeProp('table'), lz.w / 2 - 60, lz.h * 0.27);
+    addProp(loungeProp('sofa'),  lz.w / 2 - 55, lz.h * 0.66);
+    // A small wall clock on the wall just above the meeting table, off-centre
+    // so it doesn't sit directly under the TV bezel.
+    addProp(loungeProp('clock'), lz.w / 2 + 110, lz.h * 0.27 - 4);
+    // A rug under the sofa to anchor the lower half of the lounge.
+    addProp(loungeProp('rug'),   lz.w / 2 - 50, lz.h * 0.66 + 30);
     // One pinball cabinet at the bottom-right corner of the lounge. Caps the
     // queue at two players (see playSlot) so it doesn't crowd the corner; the
     // right-corner plant is dropped to give the cabinet room to breathe.
@@ -1572,12 +1776,17 @@ const OfficePro = (() => {
       door.style.top = (room.door.y - room.y - 22) + 'px';
       el2.appendChild(door);
       el2.appendChild(el('span', 'room-label', LABELS[room.activity]));
+      // Main zone icon at the top centre (same as before).
       const desk = deskSvg(room.activity);
       desk.style.cssText = `left:${room.w / 2 - 40}px;top:8px`;
       el2.appendChild(desk);
-      const chair = propSvg('chair');
-      chair.style.cssText = `left:${room.w / 2 - 14}px;top:54px`;
-      el2.appendChild(chair);
+      // A scatter of extra props so the room reads as a real little workspace
+      // (placed against the back/side walls, away from the door + the slot row
+      // along the bottom where avatars stand).
+      for (const item of roomFurniture(room.activity, room.side, room.w, room.h)) {
+        item.node.style.cssText = `left:${item.x}px;top:${item.y}px`;
+        el2.appendChild(item.node);
+      }
       $floor.appendChild(el2);
     }
     fitFloor();
@@ -1615,6 +1824,21 @@ const OfficePro = (() => {
       const g = svgEl('svg', { viewBox: '0 0 24 48', class: 'desk', width: 24, height: 48 });
       g.appendChild(svgEl('rect', { x: 5, y: 18, width: 14, height: 28, rx: 2, fill: '#e8eef2' }));
       g.appendChild(svgEl('path', { d: 'M7 18l5-12 5 12z', fill: '#5b8def', opacity: 0.8 }));
+      return g;
+    }
+    if (kind === 'clock') { // wall clock above the meeting table
+      const g = svgEl('svg', { viewBox: '0 0 22 22', class: 'desk', width: 22, height: 22 });
+      g.appendChild(svgEl('circle', { cx: 11, cy: 11, r: 10, fill: '#fafafa', stroke: '#2b2620', 'stroke-width': 1 }));
+      // 10:10 hands so it reads as a friendly clock face
+      g.appendChild(svgEl('path', { d: 'M11 11 L5 8', stroke: '#2b2620', 'stroke-width': 1.4, 'stroke-linecap': 'round' }));
+      g.appendChild(svgEl('path', { d: 'M11 11 L17 8', stroke: '#2b2620', 'stroke-width': 1.4, 'stroke-linecap': 'round' }));
+      g.appendChild(svgEl('circle', { cx: 11, cy: 11, r: 0.8, fill: '#2b2620' }));
+      return g;
+    }
+    if (kind === 'rug') { // rug under the sofa to anchor the floor
+      const g = svgEl('svg', { viewBox: '0 0 100 32', class: 'desk', width: 100, height: 32 });
+      g.appendChild(svgEl('ellipse', { cx: 50, cy: 16, rx: 48, ry: 14, fill: '#c25d6b', opacity: 0.45 }));
+      g.appendChild(svgEl('ellipse', { cx: 50, cy: 16, rx: 38, ry: 9, fill: 'none', stroke: '#fff', 'stroke-width': 0.8, 'stroke-dasharray': '4 3', opacity: 0.55 }));
       return g;
     }
     if (kind === 'arcade') { // upright arcade cabinet — purple, blinking screen
