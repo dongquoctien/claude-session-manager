@@ -1,6 +1,6 @@
 {
   "name": "@csm/desktop",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "description": "csm desktop — Electron wrapper around the local agent + web UI.",
   "author": "dongquoctien",
@@ -11,9 +11,9 @@
     "dist": "electron-builder --win --x64"
   },
   "dependencies": {
-    "@csm/agent": "0.1.1",
-    "@csm/core": "0.1.1",
-    "@csm/ui": "0.1.1"
+    "@csm/agent": "0.2.0",
+    "@csm/core": "0.2.0",
+    "@csm/ui": "0.2.0"
   },
   "devDependencies": {
     "electron": "^42.2.0",
