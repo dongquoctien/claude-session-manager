@@ -1323,6 +1323,23 @@ function composeBubble(realText, inLounge, inGame) {
   return realText;
 }
 
+/** Pixel-arcade shouts that float above the pinball cabinet when somebody is
+ *  playing. Each entry is [text, colour class] — see .pinball-shout in CSS. */
+const PINBALL_SHOUTS = [
+  ['ARE YOU READY!!!', 'ps-yellow'],
+  ['LET\'S GO!',       'ps-orange'],
+  ['HI SCORE!',        'ps-yellow'],
+  ['YOU WIN!',         'ps-green'],
+  ['PERFECT!',         'ps-green'],
+  ['COMBO!',           'ps-orange'],
+  ['BONUS!',           'ps-blue'],
+  ['YOU CLOSE!',       'ps-blue'],
+  ['KO!',              'ps-red'],
+  ['OH NO!',           'ps-red'],
+  ['TILT!',            'ps-magenta'],
+  ['GAME OVER',        'ps-magenta'],
+];
+
 // --- office view ----------------------------------------------------------
 // A playful "office": each session is an avatar that moves to the room matching
 // its current activity. Shares the Monitor SSE stream (Office.update is called
@@ -1335,6 +1352,7 @@ const OfficePro = (() => {
   const $count = document.getElementById('office-count');
   const $empty = document.getElementById('office-empty');
   let $tv = null; // the lounge TV feed (created in buildFloor)
+  let $shouts = null; // floating layer above the pinball cabinet
   const agents = new Map(); // session id -> { node, room, x, y, queue, slot, ... }
   let started = false;
   let built = false;
@@ -1429,11 +1447,12 @@ const OfficePro = (() => {
         // One pinball cabinet at the bottom-right corner. Max 2 slots in
         // front (player + spectator); overflow is rejected so extras stay at
         // the sofa instead of cramming the corner.
-        const pinballX = LOUNGE.x + LOUNGE.w - 16 - 20;
+        // New pinball is 60-wide, anchored at lz.w-16-60; centre at lz.w-46.
+        const pinballX = LOUNGE.x + LOUNGE.w - 46;
         const playY    = LOUNGE.y + LOUNGE.h - 36;
         const playing = [
           { x: pinballX,      y: playY },
-          { x: pinballX - 26, y: playY },
+          { x: pinballX - 32, y: playY },
         ];
         // No makeAt — pool is hard-capped at 2.
         return { ...base, playing };
@@ -2042,13 +2061,21 @@ const OfficePro = (() => {
     // One pinball cabinet at the bottom-right corner of the lounge. Caps the
     // queue at two players (see playSlot) so it doesn't crowd the corner; the
     // right-corner plant is dropped to give the cabinet room to breathe.
-    addProp(loungeProp('pinball'), lz.w - 16 - 40, lz.h - 110);
+    // Pinball cabinet: 60×90 (was 40×60). Raised so its base clears the
+    // floor plant in the corner.
+    addProp(loungeProp('pinball'), lz.w - 16 - 60, lz.h - 140);
+    // Floating layer above the pinball cabinet where action shouts pop in
+    // when someone is playing (see PINBALL_SHOUTS + spawnPinballShout).
+    const shouts = el('div', 'pinball-shouts');
+    shouts.style.cssText = `left:${lz.w - 16 - 60 - 60}px;top:${lz.h - 140 - 36}px;width:180px;height:40px`;
+    lounge.appendChild(shouts);
     addProp(loungeProp('plant'), 14, lz.h - 46);
     // Beverage vending machine — bigger and more legible (illuminated front,
     // visible cans). Drop the water cooler entirely (its slot is now the clock).
     addProp(loungeProp('soda'), lz.w - 62, 8);
     $floor.appendChild(lounge);
     $tv = lounge.querySelector('#office-tv');
+    $shouts = lounge.querySelector('.pinball-shouts');
 
     // Six edge rooms with a door on the lounge-facing edge.
     for (const def of ROOM_DEFS) {
@@ -2263,7 +2290,7 @@ const OfficePro = (() => {
       return g;
     }
     if (kind === 'pinball') { // pinball machine (tilted top)
-      const g = svgEl('svg', { viewBox: '0 0 40 60', class: 'desk arcade-cab', width: 40, height: 60 });
+      const g = svgEl('svg', { viewBox: '0 0 40 60', class: 'desk arcade-cab', width: 60, height: 90 });
       g.appendChild(svgEl('rect', { x: 4, y: 0, width: 32, height: 10, rx: 3, fill: '#7a3b5d' }));     // backbox
       g.appendChild(svgEl('rect', { x: 4, y: 10, width: 32, height: 38, rx: 4, fill: '#2b3b55' }));    // playfield body
       g.appendChild(svgEl('rect', { x: 7, y: 13, width: 26, height: 30, rx: 3, fill: '#0c1424' }));    // playfield glass
@@ -2697,8 +2724,28 @@ const OfficePro = (() => {
     }
   }
 
+  /** Number of agents currently parked at the pinball cabinet. */
+  function pinballPlayerCount() {
+    const set = occupied.get('lounge:playing');
+    return set ? set.size : 0;
+  }
+  /** Spawn one floating "ARE YOU READY!!!" / "KO!" / etc. shout above the
+   *  pinball. Skipped when nobody is playing — the cabinet stays quiet.
+   *  Probabilistic so shouts feel paced (every few seconds, not a torrent). */
+  function spawnPinballShout() {
+    if (!$shouts || pinballPlayerCount() === 0) return;
+    if (Math.random() > 0.55) return; // ~half the ticks
+    const [text, colour] = PINBALL_SHOUTS[Math.floor(Math.random() * PINBALL_SHOUTS.length)];
+    const node = el('div', 'pinball-shout ' + colour, text);
+    // Random horizontal jitter so successive shouts don't perfectly stack.
+    node.style.left = (8 + Math.floor(Math.random() * 80)) + 'px';
+    $shouts.appendChild(node);
+    setTimeout(() => node.remove(), 1500);
+  }
+
   let rotateTimer = null;
   let clockTimer = null;
+  let shoutTimer = null;
   function start() {
     if (started) return;
     started = true;
@@ -2707,11 +2754,13 @@ const OfficePro = (() => {
     applyBubbles();
     rotateTimer = setInterval(() => { rotateOffset++; applyBubbles(); }, 5000);
     clockTimer  = setInterval(updateDigitalClocks, 30000);
+    shoutTimer  = setInterval(spawnPinballShout, 2400);
     window.addEventListener('resize', fitFloor);
   }
   function stop() {
     if (rotateTimer) { clearInterval(rotateTimer); rotateTimer = null; }
     if (clockTimer)  { clearInterval(clockTimer);  clockTimer  = null; }
+    if (shoutTimer)  { clearInterval(shoutTimer);  shoutTimer  = null; }
     window.removeEventListener('resize', fitFloor);
     started = false;
   }
