@@ -1,6 +1,6 @@
 {
   "name": "@csm/agent",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "description": "csm local agent — serves the web UI and bridges browser -> filesystem/terminal.",
   "type": "module",
@@ -12,7 +12,7 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@csm/core": "0.1.1",
-    "@csm/ui": "0.1.1"
+    "@csm/core": "0.2.0",
+    "@csm/ui": "0.2.0"
   }
 }
