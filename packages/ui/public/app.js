@@ -1422,9 +1422,9 @@ const OfficePro = (() => {
         // wide) clear each other. The waiting ring used to reach into the
         // TV — keep its top below the TV bezel (~y=200 in lounge coords).
         const base = {
-          waiting:  ringGen(6, 140, 56,  -90, 0),
-          thinking: ringGen(4, 170, 50,    0, Math.PI / 4),
-          idle:     ringGen(4, 120, 48,  150, Math.PI / 2),
+          waiting:  ringGen(6, 140, 50,  -40, 0),                // around the meeting table (now lower)
+          thinking: ringGen(4, 170, 50,   60, Math.PI / 4),       // mid-space between table and sofa
+          idle:     ringGen(4, 120, 48,  160, Math.PI / 2),       // around the sofa
         };
         // One pinball cabinet at the bottom-right corner. Max 2 slots in
         // front (player + spectator); overflow is rejected so extras stay at
@@ -1482,11 +1482,21 @@ const OfficePro = (() => {
     const desk = () => g.appendChild(svgEl('rect', { x: 6, y: 30, width: 68, height: 8, rx: 2, fill: '#8d6a4a' }));
     const legs = () => { g.appendChild(svgEl('rect', { x: 10, y: 38, width: 4, height: 8, fill: '#6b4f36' })); g.appendChild(svgEl('rect', { x: 66, y: 38, width: 4, height: 8, fill: '#6b4f36' })); };
     switch (activity) {
-      case 'writing': // monitor with code lines
+      case 'writing': // monitor with code lines + blinking cursor
         desk(); legs();
         g.appendChild(svgEl('rect', { x: 26, y: 8, width: 28, height: 20, rx: 2, fill: '#22303a' }));
         g.appendChild(svgEl('rect', { x: 28, y: 10, width: 24, height: 16, fill: '#0f1720' }));
-        [13, 16, 19, 22].forEach((y, i) => g.appendChild(svgEl('rect', { x: 30, y, width: [14, 10, 16, 8][i], height: 1.6, class: 'desk-tint' })));
+        // code lines wrapped in a group so CSS can scroll them upward when the
+        // room has an agent (typing). Idle rooms show them static.
+        {
+          const codeG = svgEl('g', { class: 'cd-code' });
+          [13, 16, 19, 22].forEach((y, i) => codeG.appendChild(svgEl('rect', {
+            x: 30, y, width: [14, 10, 16, 8][i], height: 1.6, class: 'desk-tint',
+          })));
+          g.appendChild(codeG);
+        }
+        // blinking cursor at the end of the last line (animation via CSS)
+        g.appendChild(svgEl('rect', { x: 39, y: 21.6, width: 1.2, height: 2.2, fill: '#7fc8a0', class: 'cd-cursor' }));
         g.appendChild(svgEl('rect', { x: 36, y: 28, width: 8, height: 2, fill: '#22303a' }));
         break;
       case 'reading': // bookshelf
@@ -1557,12 +1567,73 @@ const OfficePro = (() => {
     for (let i = 0; i < 6; i++) {
       const y = 5 + i * 9;
       g.appendChild(svgEl('rect', { x: 4, y, width: 24, height: 7, rx: 1, fill: '#22303a' }));
-      // LEDs
-      g.appendChild(svgEl('circle', { cx: 7, cy: y + 3.5, r: 1, fill: i % 2 ? '#7fc8a0' : '#e0a458' }));
-      g.appendChild(svgEl('circle', { cx: 11, cy: y + 3.5, r: 1, fill: '#5b8def' }));
+      // Blinking LEDs — each gets a stagger so the rack reads as "alive".
+      const ledA = svgEl('circle', { cx: 7, cy: y + 3.5, r: 1, fill: i % 2 ? '#7fc8a0' : '#e0a458', class: 'server-led' });
+      ledA.style.animationDelay = (i * 0.18) + 's';
+      g.appendChild(ledA);
+      const ledB = svgEl('circle', { cx: 11, cy: y + 3.5, r: 1, fill: '#5b8def', class: 'server-led' });
+      ledB.style.animationDelay = (i * 0.13 + 0.4) + 's';
+      g.appendChild(ledB);
       // vent slits
       for (let v = 0; v < 4; v++) g.appendChild(svgEl('rect', { x: 16 + v * 2.4, y: y + 2, width: 1, height: 3, fill: '#0f1720' }));
     }
+    return g;
+  }
+  /** Dual-monitor desk for the Running room — screens scroll a binary stream. */
+  function rpDualMonitor(w = 64, h = 44) {
+    const g = svgEl('svg', { viewBox: '0 0 64 44', class: 'desk dual-monitor', width: w, height: h });
+    // back wall countertop
+    g.appendChild(svgEl('rect', { x: 2, y: 32, width: 60, height: 10, rx: 1, fill: '#8d6a4a' }));
+    g.appendChild(svgEl('rect', { x: 6, y: 41, width: 4, height: 3, fill: '#6b4f36' }));
+    g.appendChild(svgEl('rect', { x: 54, y: 41, width: 4, height: 3, fill: '#6b4f36' }));
+    // monitor 1
+    g.appendChild(svgEl('rect', { x: 4, y: 6, width: 26, height: 22, rx: 1.5, fill: '#22303a' }));
+    g.appendChild(svgEl('rect', { x: 6, y: 8, width: 22, height: 18, fill: '#0c1424' }));
+    g.appendChild(svgEl('rect', { x: 15, y: 28, width: 4, height: 4, fill: '#22303a' }));
+    g.appendChild(svgEl('rect', { x: 12, y: 32, width: 10, height: 1.6, fill: '#22303a' }));
+    // monitor 2
+    g.appendChild(svgEl('rect', { x: 34, y: 6, width: 26, height: 22, rx: 1.5, fill: '#22303a' }));
+    g.appendChild(svgEl('rect', { x: 36, y: 8, width: 22, height: 18, fill: '#0c1424' }));
+    g.appendChild(svgEl('rect', { x: 45, y: 28, width: 4, height: 4, fill: '#22303a' }));
+    g.appendChild(svgEl('rect', { x: 42, y: 32, width: 10, height: 1.6, fill: '#22303a' }));
+    // Binary text streams — a tall column of "1010..." lines clipped to the
+    // screen bezel and slid upward via CSS so it reads as live activity. Each
+    // SVG instance gets unique clipPath IDs so multiple desks could coexist.
+    const uid = (rpDualMonitor._n = (rpDualMonitor._n || 0) + 1);
+    const id1 = `dm-clip-1-${uid}`;
+    const id2 = `dm-clip-2-${uid}`;
+    const clip1 = svgEl('clipPath', { id: id1 });
+    clip1.appendChild(svgEl('rect', { x: 6, y: 8, width: 22, height: 18 }));
+    g.appendChild(clip1);
+    const clip2 = svgEl('clipPath', { id: id2 });
+    clip2.appendChild(svgEl('rect', { x: 36, y: 8, width: 22, height: 18 }));
+    g.appendChild(clip2);
+    const binaryLines = [
+      '10101100', '01101001', '11010101', '10010110',
+      '00111001', '11100100', '01011011', '10110010',
+      '11001011', '01010110', '10111001', '11010011',
+    ];
+    const makeStream = (clipId, cxScreen, delay) => {
+      const wrap = svgEl('g', { 'clip-path': `url(#${clipId})` });
+      const ticker = svgEl('g', { class: 'dm-ticker' });
+      ticker.style.animationDelay = delay + 's';
+      binaryLines.forEach((b, i) => {
+        const t = svgEl('text', {
+          x: cxScreen, y: 11 + i * 4,
+          'font-size': 3.4,
+          'font-family': 'ui-monospace, Consolas, monospace',
+          'text-anchor': 'middle',
+          fill: '#7fc8a0',
+        });
+        t.textContent = b;
+        ticker.appendChild(t);
+      });
+      wrap.appendChild(ticker);
+      return wrap;
+    };
+    // Screen 1 spans x 6..28 → centre 17; screen 2 spans 36..58 → centre 47.
+    g.appendChild(makeStream(id1, 17, 0));
+    g.appendChild(makeStream(id2, 47, -1.7));
     return g;
   }
   function rpWhiteboard(w = 60, h = 36) {
@@ -1585,6 +1656,8 @@ const OfficePro = (() => {
   }
   function rpLamp(w = 18, h = 36) {
     const g = svgEl('svg', { viewBox: '0 0 18 36', class: 'desk', width: w, height: h });
+    // soft circular glow around the bulb — pulses when the room has an agent
+    g.appendChild(svgEl('circle', { cx: 9, cy: 9, r: 8, fill: '#fff1c4', opacity: 0.2, class: 'rd-glow' }));
     g.appendChild(svgEl('ellipse', { cx: 9, cy: 34, rx: 6, ry: 1.5, fill: '#2b2620' }));      // base
     g.appendChild(svgEl('rect', { x: 8, y: 12, width: 2, height: 22, fill: '#5a4636' }));     // pole
     g.appendChild(svgEl('path', { d: 'M2 12 L16 12 L13 4 L5 4 z', fill: '#e0a458' }));        // shade
@@ -1603,6 +1676,144 @@ const OfficePro = (() => {
     const cols = ['#fde68a','#fca5a5','#a7f3d0','#bfdbfe','#fbcfe8'];
     const cells = [[2,2],[12,2],[22,2],[2,12],[12,12],[2,22]];
     cells.forEach(([x,y], i) => g.appendChild(svgEl('rect', { x, y, width: 5, height: 5, fill: cols[i % cols.length] })));
+    return g;
+  }
+  /** Retro pixel "data transfer" window for the Browsing room: a globe on
+   *  the left, a computer on the right, documents flying from globe to
+   *  computer and a progress bar at the bottom. Colours come from the app
+   *  theme (--bg-elev / --border / --accent) so it doesn't clash with the
+   *  rest of the office; animations only run when an agent is present. */
+  function rpFileTransfer(w = 100, h = 70) {
+    const g = svgEl('svg', { viewBox: '0 0 100 70', class: 'desk file-transfer', width: w, height: h });
+    // outer pixel window frame (border = themed light line; surface = themed
+    // elevated background)
+    g.appendChild(svgEl('rect', { x: 0, y: 0, width: 100, height: 70, class: 'ft-frame' }));
+    g.appendChild(svgEl('rect', { x: 2, y: 2, width: 96, height: 66, class: 'ft-surface' }));
+    // title bar (separator line)
+    g.appendChild(svgEl('rect', { x: 2, y: 7, width: 96, height: 0.6, class: 'ft-frame' }));
+    // window control glyphs
+    g.appendChild(svgEl('rect', { x: 82, y: 4, width: 2, height: 0.6, class: 'ft-frame' }));    // _
+    g.appendChild(svgEl('rect', { x: 87, y: 3, width: 3, height: 3, fill: 'none', class: 'ft-stroke' })); // □
+    g.appendChild(svgEl('path', { d: 'M93 3 L96 6 M96 3 L93 6', class: 'ft-stroke' }));         // ×
+    // === Globe icon (LEFT, "source") — a blue earth with continent blobs ===
+    const cx1 = 25, cy = 32, r = 10;
+    g.appendChild(svgEl('circle', { cx: cx1, cy, r, fill: '#3a6fa8' }));                       // ocean
+    g.appendChild(svgEl('circle', { cx: cx1, cy, r: r - 1, fill: 'none', stroke: '#5b8def', 'stroke-width': 0.6 }));
+    // continents — three irregular blobs
+    g.appendChild(svgEl('path', { d: `M${cx1 - 6} ${cy - 4} q3 -2 6 0 q1 3 -2 4 q-5 0 -4 -4 z`, fill: '#5fae8c' }));
+    g.appendChild(svgEl('path', { d: `M${cx1 + 1} ${cy + 1} q4 -1 5 3 q-2 3 -5 2 q-2 -2 0 -5 z`, fill: '#5fae8c' }));
+    g.appendChild(svgEl('path', { d: `M${cx1 - 4} ${cy + 3} q2 -1 3 1 q0 2 -3 1 z`, fill: '#5fae8c' }));
+    // latitude / longitude hint lines
+    g.appendChild(svgEl('path', { d: `M${cx1 - r} ${cy} h${r * 2}`, stroke: '#5b8def', 'stroke-width': 0.4, opacity: 0.5 }));
+    g.appendChild(svgEl('path', { d: `M${cx1} ${cy - r} v${r * 2}`, stroke: '#5b8def', 'stroke-width': 0.4, opacity: 0.5 }));
+    // === Computer icon (RIGHT, "destination") — pixel monitor + base ===
+    const cx2 = 75;
+    g.appendChild(svgEl('rect', { x: cx2 - 12, y: cy - 9,  width: 24, height: 16, rx: 1, class: 'ft-stroke', fill: 'none', 'stroke-width': 1.4 })); // monitor frame
+    g.appendChild(svgEl('rect', { x: cx2 - 10, y: cy - 7,  width: 20, height: 12, fill: '#3a6fa8' }));                  // screen
+    // tiny "browser tabs" + 2 horizontal lines on screen
+    g.appendChild(svgEl('rect', { x: cx2 - 9, y: cy - 6, width: 5, height: 1.5, fill: '#fafafa' }));
+    g.appendChild(svgEl('rect', { x: cx2 - 9, y: cy - 3, width: 16, height: 0.8, fill: '#fafafa', opacity: 0.7 }));
+    g.appendChild(svgEl('rect', { x: cx2 - 9, y: cy - 1, width: 12, height: 0.8, fill: '#fafafa', opacity: 0.7 }));
+    g.appendChild(svgEl('rect', { x: cx2 - 9, y: cy + 1, width: 14, height: 0.8, fill: '#fafafa', opacity: 0.7 }));
+    // stand + base
+    g.appendChild(svgEl('rect', { x: cx2 - 2, y: cy + 7, width: 4, height: 3, class: 'ft-stroke', fill: 'none', 'stroke-width': 1.2 }));
+    g.appendChild(svgEl('rect', { x: cx2 - 8, y: cy + 10, width: 16, height: 2, class: 'ft-stroke', fill: 'none', 'stroke-width': 1.2 }));
+    // === Documents flying from globe to computer ===
+    const doc = (cls) => {
+      const dg = svgEl('g', { class: cls });
+      dg.appendChild(svgEl('rect', { x: -3, y: -4, width: 6, height: 8, class: 'ft-doc-paper' }));
+      dg.appendChild(svgEl('text', { x: 0, y: 1.5, 'text-anchor': 'middle', 'font-size': 5, 'font-weight': 700, class: 'ft-doc-letter', 'font-family': 'ui-monospace, Consolas, monospace' }))
+        .textContent = 'B';
+      return dg;
+    };
+    // Trajectory: docs hop from above the left folder to above the right
+    // folder. CSS sets transform-origin + animation; idle rooms hide them.
+    const flyer1 = svgEl('g', { class: 'ft-doc ft-doc-1' });
+    flyer1.appendChild(doc(''));
+    g.appendChild(flyer1);
+    const flyer2 = svgEl('g', { class: 'ft-doc ft-doc-2' });
+    flyer2.appendChild(doc(''));
+    g.appendChild(flyer2);
+    // === Progress bar: frame + 10 segments that fade in sequentially via
+    // staggered animation-delay (see CSS .ft-seg). Re-runs on a loop. ===
+    g.appendChild(svgEl('rect', { x: 10, y: 50, width: 80, height: 8, fill: 'none', class: 'ft-stroke', 'stroke-width': 1 }));
+    for (let i = 0; i < 10; i++) {
+      const seg = svgEl('rect', { x: 12 + i * 7.6, y: 52, width: 6, height: 4, class: 'ft-seg' });
+      seg.style.animationDelay = (i * 0.18) + 's';
+      g.appendChild(seg);
+    }
+    return g;
+  }
+  /** Whiteboard with a "CASE #" header banner + a pinned polaroid in the
+   *  corner — gives the Searching room a clear "investigation HQ" read. */
+  function rpCaseboard(w = 110, h = 50) {
+    const g = svgEl('svg', { viewBox: '0 0 110 50', class: 'desk', width: w, height: h });
+    g.appendChild(svgEl('rect', { x: 0, y: 0, width: 110, height: 50, rx: 1.5, fill: '#cccccc' })); // frame
+    g.appendChild(svgEl('rect', { x: 2, y: 2, width: 106, height: 42, fill: '#fafafa' }));           // board
+    // CASE # banner stripe at the top of the board
+    g.appendChild(svgEl('rect', { x: 4, y: 4, width: 60, height: 7, fill: '#c25d3c' }));
+    g.appendChild(svgEl('text', {
+      x: 7, y: 9.5, fill: '#fafafa',
+      'font-size': 5, 'font-weight': 700,
+      'font-family': 'ui-monospace, Consolas, monospace',
+    })).textContent = 'CASE #047';
+    // Doodles: timeline arrow + a couple of clue boxes + connecting line
+    g.appendChild(svgEl('path', { d: 'M8 22 L98 22', stroke: '#5b8def', 'stroke-width': 1, fill: 'none' }));
+    g.appendChild(svgEl('path', { d: 'M94 19 L98 22 L94 25', stroke: '#5b8def', 'stroke-width': 1, fill: 'none' }));
+    g.appendChild(svgEl('rect', { x: 10, y: 26, width: 14, height: 9, fill: 'none', stroke: '#5fae8c', 'stroke-width': 0.9 }));
+    g.appendChild(svgEl('rect', { x: 32, y: 26, width: 14, height: 9, fill: 'none', stroke: '#5fae8c', 'stroke-width': 0.9 }));
+    g.appendChild(svgEl('rect', { x: 54, y: 26, width: 14, height: 9, fill: 'none', stroke: '#5fae8c', 'stroke-width': 0.9 }));
+    g.appendChild(svgEl('path', { d: 'M24 30.5 L32 30.5 M46 30.5 L54 30.5', stroke: '#c25d3c', 'stroke-width': 0.8, fill: 'none' }));
+    // A polaroid pinned to the top-right corner of the board (tilted)
+    const card = svgEl('g', { transform: 'rotate(10 90 12)' });
+    card.appendChild(svgEl('rect', { x: 84, y: 5, width: 12, height: 14, fill: '#fafafa', stroke: '#9a9286', 'stroke-width': 0.4 }));
+    card.appendChild(svgEl('rect', { x: 85, y: 6, width: 10, height: 9, fill: '#3a4a63' }));
+    g.appendChild(card);
+    g.appendChild(svgEl('circle', { cx: 90, cy: 7, r: 0.9, fill: '#e06a5a' })); // pin
+    // chalk tray
+    g.appendChild(svgEl('rect', { x: 2, y: 44, width: 106, height: 4, fill: '#9a9286' }));
+    // Magnifier — sweeps across the clue row when the room has an agent
+    // (see CSS .room.has-agent .cb-magnifier). Sits idle off to the left
+    // when nobody's investigating.
+    const mag = svgEl('g', { class: 'cb-magnifier' });
+    mag.appendChild(svgEl('circle', { cx: 0, cy: 0, r: 5, fill: 'none', stroke: '#2b2620', 'stroke-width': 1.2 }));
+    mag.appendChild(svgEl('circle', { cx: 0, cy: 0, r: 4, fill: '#5b8def', opacity: 0.18 }));
+    mag.appendChild(svgEl('path', { d: 'M3.5 3.5 L7 7', stroke: '#2b2620', 'stroke-width': 1.4, 'stroke-linecap': 'round' }));
+    g.appendChild(mag);
+    return g;
+  }
+  /** Detective's investigation board: cork with photo polaroids connected by
+   *  red string + a couple of sticky notes. Classic "the case is connected!"
+   *  look from noir/crime games and Pinterest detective rooms. */
+  function rpInvestigationBoard(w = 38, h = 38) {
+    const g = svgEl('svg', { viewBox: '0 0 38 38', class: 'desk', width: w, height: h });
+    // cork backing + frame
+    g.appendChild(svgEl('rect', { x: 0, y: 0, width: 38, height: 38, rx: 1, fill: '#3a2b22' })); // dark frame
+    g.appendChild(svgEl('rect', { x: 1.5, y: 1.5, width: 35, height: 35, rx: 0.5, fill: '#7a5638' })); // cork
+    // tiny grain dots on the cork
+    [[5,8],[14,5],[24,9],[31,14],[8,18],[28,22],[16,27],[6,30],[26,32],[20,16]].forEach(([x,y]) =>
+      g.appendChild(svgEl('circle', { cx: x, cy: y, r: 0.4, fill: '#5a3f28' })));
+    // red strings — zigzag connecting the three photo "evidence" spots
+    g.appendChild(svgEl('path', {
+      d: 'M7 9 L18 18 L29 8 M18 18 L19 30',
+      stroke: '#c25d3c', 'stroke-width': 0.9, fill: 'none', 'stroke-linecap': 'round',
+    }));
+    // photo polaroids — white card with a tiny dark "image" area, slightly tilted
+    const polaroid = (x, y, rot, tone) => {
+      const card = svgEl('g', { transform: `rotate(${rot} ${x + 4} ${y + 5})` });
+      card.appendChild(svgEl('rect', { x, y, width: 8, height: 10, fill: '#fafafa', stroke: '#cccccc', 'stroke-width': 0.3 }));
+      card.appendChild(svgEl('rect', { x: x + 1, y: y + 1, width: 6, height: 6, fill: tone }));
+      g.appendChild(card);
+    };
+    polaroid(3, 4, -8, '#3a4a63');   // top-left
+    polaroid(25, 3, 6, '#6b4f36');   // top-right
+    polaroid(15, 25, -3, '#5a3f28'); // bottom-centre
+    // pushpins (red dots) where the strings meet the photos
+    [[7,9],[29,8],[19,30],[18,18]].forEach(([cx, cy]) =>
+      g.appendChild(svgEl('circle', { cx, cy, r: 0.9, fill: '#e06a5a' })));
+    // a couple of sticky notes tucked in the corners for colour
+    g.appendChild(svgEl('rect', { x: 30, y: 22, width: 5, height: 5, fill: '#fde68a', transform: 'rotate(8 32.5 24.5)' }));
+    g.appendChild(svgEl('rect', { x: 3, y: 22, width: 5, height: 5, fill: '#a7f3d0', transform: 'rotate(-6 5.5 24.5)' }));
     return g;
   }
   function rpCoffee(w = 12, h = 14) {
@@ -1655,6 +1866,31 @@ const OfficePro = (() => {
     }
     return g;
   }
+  /** Org-chart whiteboard for the Spawning room: a root node with child nodes
+   *  branching out below. The child nodes pulse one-by-one (subagents
+   *  "spawning") when the room has an agent — CSS .org-node animation. */
+  function rpOrgChart(w = 70, h = 50) {
+    const g = svgEl('svg', { viewBox: '0 0 70 50', class: 'desk', width: w, height: h });
+    // frame + board
+    g.appendChild(svgEl('rect', { x: 0, y: 0, width: 70, height: 50, rx: 1.5, fill: '#cccccc' }));
+    g.appendChild(svgEl('rect', { x: 2, y: 2, width: 66, height: 42, fill: '#fafafa' }));
+    // connecting lines first (so nodes paint on top)
+    g.appendChild(svgEl('path', {
+      d: 'M35 17 L35 24 M15 30 L15 24 L55 24 L55 30 M35 24 L35 30',
+      stroke: '#9a9286', 'stroke-width': 1, fill: 'none',
+    }));
+    // root node (top centre)
+    g.appendChild(svgEl('circle', { cx: 35, cy: 13, r: 4, fill: '#5b8def', stroke: '#2b2620', 'stroke-width': 0.6 }));
+    // three child nodes — class lets CSS pulse them when has-agent
+    [[15, 34], [35, 34], [55, 34]].forEach(([cx, cy], i) => {
+      const node = svgEl('circle', { cx, cy, r: 3.5, fill: '#7fc8a0', stroke: '#2b2620', 'stroke-width': 0.5, class: 'org-node' });
+      node.style.animationDelay = (i * 0.4) + 's';
+      g.appendChild(node);
+    });
+    // chalk tray
+    g.appendChild(svgEl('rect', { x: 2, y: 44, width: 66, height: 4, fill: '#9a9286' }));
+    return g;
+  }
   function rpStool(w = 18, h = 22) {
     const g = svgEl('svg', { viewBox: '0 0 18 22', class: 'desk', width: w, height: h });
     g.appendChild(svgEl('ellipse', { cx: 9, cy: 8, rx: 7, ry: 3, fill: '#a07a52' }));
@@ -1671,57 +1907,97 @@ const OfficePro = (() => {
    * along the bottom — props avoid those zones.
    */
   function roomFurniture(activity, side, RW, RH) {
-    // helper to push { node, x, y }
+    // Top-down layout rules (see plan):
+    //   - Anchor goes on the back wall (y 22..50).
+    //   - Side prop goes on the wall FAR FROM THE DOOR (y ~ 90..130).
+    //   - Floor accent goes in the FAR-FROM-DOOR bottom corner (y ~ 130..150).
+    //   - Nothing past y=150 → bottom 50px is the avatar lane.
+    //   - The door sits on the inner edge at mid-height, so "far from door"
+    //     means the OPPOSITE outer wall: side='L' (door on right) → far=left,
+    //     side='R' (door on left) → far=right.
+    const farIsLeft = side === 'L';
+    const farX = (w, pad = 8) => farIsLeft ? pad : RW - w - pad;
     const out = [];
     const add = (node, x, y) => out.push({ node, x, y });
-    // the door is on the inner edge mid-height; avoid the strip around it.
-    const innerX = side === 'L' ? RW - 14 : 6;  // back wall = opposite side
-    const backLeft  = side === 'L' ? 8           : RW - 16;
-    const backRight = side === 'L' ? RW - 60     : 4;
     switch (activity) {
-      case 'writing': // a coder's room: monitor desk (top), bookshelf along back wall,
-                      // lamp on the side, plant, sticky-notes board, coffee cup
-        add(rpBookshelf(56, 48), side === 'L' ? 8 : RW - 64, 56);
-        add(rpStickyBoard(28, 28), side === 'L' ? RW - 36 : 8, 50);
-        add(rpLamp(16, 30), side === 'L' ? RW - 24 : 8, 92);
-        add(rpPlant(22, 28), side === 'L' ? 12 : RW - 34, 150);
-        add(rpCoffee(12, 14), side === 'L' ? 100 : 60, 76);
+      case 'writing': {
+        // Coding — anchor = the monitor desk at the back-centre (default
+        // deskSvg). Add a small bookshelf in the back FAR-corner, a desk lamp
+        // on the FAR side wall, and a plant + coffee on the floor by the same
+        // wall — every accent on the wall opposite the door.
+        add(rpBookshelf(46, 48), farX(46), 30);
+        add(rpLamp(16, 30),      farX(16), 90);
+        add(rpPlant(20, 26),     farX(20), 124);
+        add(rpCoffee(12, 14),    farX(12, 30), 130);
         break;
-      case 'reading': // library: tall bookshelves + reading lamp + stool + plant
-        add(rpBookshelf(46, 70), 8, 50);
-        add(rpBookshelf(46, 70), RW - 54, 50);
-        add(rpLamp(16, 32), side === 'L' ? RW - 30 : 12, 124);
-        add(rpStool(18, 20), RW / 2 + 22, 158);
-        add(rpPlant(20, 26), RW / 2 - 40, 152);
+      }
+      case 'reading': {
+        // Reading — the library wall IS the anchor. Three bookshelves lined
+        // up along the back wall make one visual unit ("the bookshelf row"),
+        // then a reading lamp on the FAR side wall and a stool in the FAR
+        // corner. No floor plant — the wall does enough heavy lifting.
+        const shelfW = 60, shelfH = 50, count = 3;
+        const totalW = shelfW * count + (count - 1) * 4;
+        const startX = (RW - totalW) / 2;
+        for (let i = 0; i < count; i++) {
+          add(rpBookshelf(shelfW, shelfH), startX + i * (shelfW + 4), 26);
+        }
+        add(rpLamp(18, 34),  farX(18), 96);
+        add(rpStool(20, 22), farX(20), 138);
         break;
-      case 'running': // ops room: server rack on back wall, router, files, plant
-        add(rpServerRack(28, 58), side === 'L' ? 10 : RW - 38, 58);
-        add(rpServerRack(28, 58), side === 'L' ? 42 : RW - 70, 64);
-        add(rpRouter(30, 14), side === 'L' ? RW - 44 : 12, 60);
-        add(rpFiles(22, 20), side === 'L' ? RW - 42 : 14, 88);
-        add(rpPlant(20, 26), side === 'L' ? 14 : RW - 34, 154);
+      }
+      case 'running': {
+        // Ops / server room — anchor is a cluster of two server racks on the
+        // FAR end of the back wall (away from the door). A whiteboard chart
+        // on the OTHER end of the back wall acts as the secondary accent, and
+        // a small file stack sits in the FAR-side corner on the floor.
+        const rackW = 28, rackH = 58, rackPad = 8;
+        const rack1 = farX(rackW * 2 + rackPad, 12);   // x of cluster start (far side)
+        add(rpServerRack(rackW, rackH), rack1,               26);
+        add(rpServerRack(rackW, rackH), rack1 + rackW + rackPad, 26);
+        // whiteboard chart at the opposite back-corner
+        add(rpWhiteboard(64, 36), farIsLeft ? RW - 76 : 12, 30);
+        // Dual-monitor workstation centred on the back wall, between the
+        // server cluster (far side) and the whiteboard (near side). Binary
+        // streams on the screens only scroll while an agent is in the room
+        // — see CSS .room.has-agent .dm-ticker.
+        add(rpDualMonitor(70, 48), Math.round(RW / 2 - 35), 26);
         break;
-      case 'searching': // detective vibe: whiteboard, sticky-notes, files, lamp
-        add(rpWhiteboard(64, 36), RW / 2 - 32, 60);
-        add(rpStickyBoard(24, 24), side === 'L' ? RW - 32 : 8, 104);
-        add(rpFiles(20, 18), side === 'L' ? 10 : RW - 30, 102);
-        add(rpLamp(16, 28), side === 'L' ? RW - 26 : 10, 134);
-        add(rpPlant(18, 24), RW / 2 - 9, 154);
+      }
+      case 'searching': {
+        // Investigation wall — a CASE board with doodles + pinned polaroid
+        // anchors the back wall, flanked by a detective's cork board (photos
+        // strung together with red thread) on one side and a small plant on
+        // the other. Side walls + floor stay clear for the avatar.
+        add(rpCaseboard(110, 50),         Math.round(RW / 2 - 55), 22);
+        add(rpInvestigationBoard(40, 40), farIsLeft ? 10 : RW - 50, 28);
+        add(rpPlant(22, 28),              farIsLeft ? RW - 32 : 10, 32);
         break;
-      case 'browsing': // explorer vibe: poster, globe-desk (already), router, lamp
-        add(rpPoster(28, 38, '#c08adb'), side === 'L' ? 12 : RW - 40, 50);
-        add(rpRouter(28, 14), side === 'L' ? RW - 40 : 10, 78);
-        add(rpLamp(16, 30), side === 'L' ? RW - 28 : 10, 102);
-        add(rpPlant(22, 28), side === 'L' ? 14 : RW - 36, 150);
-        add(rpStickyBoard(22, 22), RW / 2 + 30, 132);
+      }
+      case 'browsing': {
+        // Explorer / data-fetcher — the centrepiece is a retro pixel
+        // "file transfer" window with two folders, flying docs and a
+        // progress bar that runs while an agent is in the room. A poster
+        // on the far back-corner and a plant in the floor-corner give the
+        // wall some warmth without competing with the centre.
+        add(rpFileTransfer(120, 80),        Math.round(RW / 2 - 60), 18);
+        add(rpPoster(28, 38, '#c08adb'),    farIsLeft ? 10 : RW - 38, 26);
+        add(rpPlant(22, 28),                farIsLeft ? RW - 32 : 10, 30);
         break;
-      case 'spawning': // orchestrator: file cabinet, whiteboard, plant, files
-        add(rpFileCabinet(26, 38), side === 'L' ? 10 : RW - 36, 60);
-        add(rpWhiteboard(52, 30), RW / 2 - 12, 56);
-        add(rpFiles(22, 20), side === 'L' ? RW - 38 : 14, 90);
-        add(rpStool(18, 20), RW / 2 + 30, 158);
-        add(rpPlant(20, 26), side === 'L' ? 14 : RW - 34, 150);
+      }
+      case 'spawning': {
+        // Orchestrator — three filing cabinets line the back wall as a
+        // "filing row" (anchor) and an org-chart whiteboard sits on the
+        // FAR side wall, with child nodes pulsing as sub-agents spawn.
+        const cabW = 28, cabH = 42, cabPad = 6;
+        const totalW = cabW * 3 + cabPad * 2;
+        const startX = Math.round((RW - totalW) / 2);
+        for (let i = 0; i < 3; i++) {
+          add(rpFileCabinet(cabW, cabH), startX + i * (cabW + cabPad), 26);
+        }
+        add(rpOrgChart(70, 50), farIsLeft ? 6 : RW - 76, 95);
         break;
+      }
     }
     return out;
   }
@@ -1746,22 +2022,31 @@ const OfficePro = (() => {
     // Lounge props: meeting table (upper), sofa (lower), plants + vending (corners),
     // and two arcade cabinets at the bottom corners where idle agents go to play.
     const addProp = (svg, x, y) => { svg.style.cssText = `left:${x}px;top:${y}px`; lounge.appendChild(svg); };
-    // Pull the meeting table closer to the TV so the dead band between them
-    // collapses, and let the sofa sit a bit higher too.
-    addProp(loungeProp('table'), lz.w / 2 - 60, lz.h * 0.27);
-    addProp(loungeProp('sofa'),  lz.w / 2 - 55, lz.h * 0.66);
-    // A small wall clock on the wall just above the meeting table, off-centre
-    // so it doesn't sit directly under the TV bezel.
-    addProp(loungeProp('clock'), lz.w / 2 + 110, lz.h * 0.27 - 4);
+    // Long meeting table sits lower so it isn't crammed under the TV — the
+    // sofa stays in the lower half.
+    addProp(loungeProp('table'), lz.w / 2 - 90, lz.h * 0.38);
+    addProp(loungeProp('sofa'),  lz.w / 2 - 55, lz.h * 0.7);
+    // A digital wall clock at the top-left corner of the lounge — replaces
+    // the old water cooler in that slot so the top wall reads as "snack
+    // corner + clock + TV" instead of "water + TV + vending".
+    addProp(loungeProp('digitalclock'), 14, 14);
+    // End tables + warm lamps flanking the sofa — the cozy "living-room"
+    // touch. Lamps render in front of the tables since they're added after.
+    const sofaY = lz.h * 0.7;
+    addProp(loungeProp('endtable'), lz.w / 2 - 86, sofaY + 8);    // left of sofa
+    addProp(loungeProp('endtable'), lz.w / 2 + 64, sofaY + 8);    // right of sofa
+    addProp(loungeProp('warmlamp'), lz.w / 2 - 80, sofaY - 22);
+    addProp(loungeProp('warmlamp'), lz.w / 2 + 70, sofaY - 22);
     // A rug under the sofa to anchor the lower half of the lounge.
-    addProp(loungeProp('rug'),   lz.w / 2 - 50, lz.h * 0.66 + 30);
+    addProp(loungeProp('rug'),   lz.w / 2 - 50, sofaY + 30);
     // One pinball cabinet at the bottom-right corner of the lounge. Caps the
     // queue at two players (see playSlot) so it doesn't crowd the corner; the
     // right-corner plant is dropped to give the cabinet room to breathe.
     addProp(loungeProp('pinball'), lz.w - 16 - 40, lz.h - 110);
     addProp(loungeProp('plant'), 14, lz.h - 46);
-    addProp(loungeProp('vending'), lz.w - 50, 12);
-    addProp(loungeProp('water'), 14, 12);
+    // Beverage vending machine — bigger and more legible (illuminated front,
+    // visible cans). Drop the water cooler entirely (its slot is now the clock).
+    addProp(loungeProp('soda'), lz.w - 62, 8);
     $floor.appendChild(lounge);
     $tv = lounge.querySelector('#office-tv');
 
@@ -1776,10 +2061,16 @@ const OfficePro = (() => {
       door.style.top = (room.door.y - room.y - 22) + 'px';
       el2.appendChild(door);
       el2.appendChild(el('span', 'room-label', LABELS[room.activity]));
-      // Main zone icon at the top centre (same as before).
-      const desk = deskSvg(room.activity);
-      desk.style.cssText = `left:${room.w / 2 - 40}px;top:8px`;
-      el2.appendChild(desk);
+      // Most rooms get a small zone icon at the top centre (writing's monitor,
+      // running's terminal, etc.). A few rooms instead define their anchor
+      // directly inside roomFurniture (a wall-spanning bookshelf for Reading,
+      // a file-cabinet row for Spawning, …) so skip the small desk for those.
+      const ROOMS_WITHOUT_DEFAULT_DESK = new Set(['reading', 'running', 'searching', 'browsing', 'spawning']);
+      if (!ROOMS_WITHOUT_DEFAULT_DESK.has(room.activity)) {
+        const desk = deskSvg(room.activity);
+        desk.style.cssText = `left:${room.w / 2 - 40}px;top:8px`;
+        el2.appendChild(desk);
+      }
       // A scatter of extra props so the room reads as a real little workspace
       // (placed against the back/side walls, away from the door + the slot row
       // along the bottom where avatars stand).
@@ -1794,14 +2085,35 @@ const OfficePro = (() => {
 
   /** Bigger furniture for the central lounge. */
   function loungeProp(kind) {
-    if (kind === 'table') { // meeting table with chairs
-      const g = svgEl('svg', { viewBox: '0 0 120 70', class: 'desk', width: 120, height: 70 });
-      g.appendChild(svgEl('ellipse', { cx: 60, cy: 35, rx: 46, ry: 24, fill: '#8d6a4a' }));
-      g.appendChild(svgEl('ellipse', { cx: 60, cy: 33, rx: 40, ry: 19, fill: '#a07a52' }));
-      for (const a of [0, 60, 120, 180, 240, 300]) {
-        const x = 60 + Math.cos(a * Math.PI / 180) * 56, y = 35 + Math.sin(a * Math.PI / 180) * 30;
-        g.appendChild(svgEl('rect', { x: x - 5, y: y - 5, width: 10, height: 10, rx: 2, fill: '#6b4f36' }));
+    if (kind === 'table') { // long rectangular meeting table with chairs
+      const g = svgEl('svg', { viewBox: '0 0 180 70', class: 'desk', width: 180, height: 70 });
+      // chairs first so the table-top draws over them slightly
+      // top row (4 chairs, facing the table)
+      for (let i = 0; i < 4; i++) {
+        const x = 24 + i * 40;
+        g.appendChild(svgEl('rect', { x: x - 7, y: 4, width: 14, height: 5, rx: 1.5, fill: '#6b4f36' })); // backrest
+        g.appendChild(svgEl('rect', { x: x - 7, y: 10, width: 14, height: 5, rx: 1.5, fill: '#8d6a4a' })); // seat
       }
+      // bottom row (4 chairs)
+      for (let i = 0; i < 4; i++) {
+        const x = 24 + i * 40;
+        g.appendChild(svgEl('rect', { x: x - 7, y: 55, width: 14, height: 5, rx: 1.5, fill: '#8d6a4a' }));  // seat
+        g.appendChild(svgEl('rect', { x: x - 7, y: 61, width: 14, height: 5, rx: 1.5, fill: '#6b4f36' })); // backrest
+      }
+      // end chairs (head + foot of table)
+      g.appendChild(svgEl('rect', { x: 0, y: 28, width: 5, height: 14, rx: 1.5, fill: '#6b4f36' }));   // left backrest
+      g.appendChild(svgEl('rect', { x: 6, y: 28, width: 5, height: 14, rx: 1.5, fill: '#8d6a4a' }));   // left seat
+      g.appendChild(svgEl('rect', { x: 169, y: 28, width: 5, height: 14, rx: 1.5, fill: '#8d6a4a' })); // right seat
+      g.appendChild(svgEl('rect', { x: 175, y: 28, width: 5, height: 14, rx: 1.5, fill: '#6b4f36' })); // right backrest
+      // table top
+      g.appendChild(svgEl('rect', { x: 14, y: 18, width: 152, height: 34, rx: 4, fill: '#8d6a4a' }));   // base
+      g.appendChild(svgEl('rect', { x: 18, y: 20, width: 144, height: 28, rx: 3, fill: '#a07a52' }));   // highlight surface
+      // a small centrepiece: two cups + a tiny vase
+      g.appendChild(svgEl('rect', { x: 40, y: 30, width: 4, height: 5, fill: '#fafafa' }));            // cup 1
+      g.appendChild(svgEl('rect', { x: 56, y: 31, width: 4, height: 4, fill: '#fafafa' }));            // cup 2
+      g.appendChild(svgEl('rect', { x: 88, y: 28, width: 4, height: 8, fill: '#5fae8c' }));            // vase
+      g.appendChild(svgEl('circle', { cx: 90, cy: 27, r: 2, fill: '#c25d6b' }));                       // flower
+      g.appendChild(svgEl('rect', { x: 130, y: 31, width: 8, height: 4, rx: 0.6, fill: '#fafafa' }));  // notepad
       return g;
     }
     if (kind === 'sofa') {
@@ -1839,6 +2151,101 @@ const OfficePro = (() => {
       const g = svgEl('svg', { viewBox: '0 0 100 32', class: 'desk', width: 100, height: 32 });
       g.appendChild(svgEl('ellipse', { cx: 50, cy: 16, rx: 48, ry: 14, fill: '#c25d6b', opacity: 0.45 }));
       g.appendChild(svgEl('ellipse', { cx: 50, cy: 16, rx: 38, ry: 9, fill: 'none', stroke: '#fff', 'stroke-width': 0.8, 'stroke-dasharray': '4 3', opacity: 0.55 }));
+      return g;
+    }
+    if (kind === 'digitalclock') {
+      // Digital LED-style wall clock — black bezel with the live local time
+      // (12-hour clock with AM/PM), updated by updateDigitalClocks() below.
+      const g = svgEl('svg', { viewBox: '0 0 56 24', class: 'desk digital-clock', width: 56, height: 24 });
+      g.appendChild(svgEl('rect', { x: 0, y: 0, width: 56, height: 24, rx: 2.5, fill: '#1c1f24' })); // bezel
+      g.appendChild(svgEl('rect', { x: 2, y: 2, width: 52, height: 20, rx: 1.5, fill: '#0c1424' })); // screen
+      // Time HH:MM (LED red, 7-seg-ish monospace)
+      const time = svgEl('text', {
+        x: 5, y: 17,
+        'font-size': 14, 'font-weight': 700,
+        'font-family': 'ui-monospace, Consolas, monospace',
+        'letter-spacing': '0.5px',
+        fill: '#e06a5a',
+        class: 'dc-time',
+      });
+      time.textContent = '10:10';
+      g.appendChild(time);
+      // AM/PM indicator (smaller, stacked vertically off to the right)
+      const meridiem = svgEl('text', {
+        x: 50, y: 12,
+        'text-anchor': 'middle',
+        'font-size': 5.5, 'font-weight': 700,
+        'font-family': 'ui-monospace, Consolas, monospace',
+        fill: '#e06a5a',
+        class: 'dc-meridiem',
+      });
+      meridiem.textContent = 'AM';
+      g.appendChild(meridiem);
+      // soft glow under the screen
+      g.appendChild(svgEl('rect', { x: 4, y: 20, width: 48, height: 1, fill: '#e06a5a', opacity: 0.4, class: 'wl-glow' }));
+      return g;
+    }
+    if (kind === 'soda') {
+      // Beverage vending machine — illuminated front with shelves of cans.
+      const g = svgEl('svg', { viewBox: '0 0 48 72', class: 'desk', width: 48, height: 72 });
+      // body (warm red)
+      g.appendChild(svgEl('rect', { x: 0, y: 0, width: 48, height: 72, rx: 3, fill: '#c25d3c' }));
+      g.appendChild(svgEl('rect', { x: 2, y: 2, width: 44, height: 4, rx: 1, fill: '#e06a5a' }));     // top trim
+      // top banner with logo (SODA letters)
+      g.appendChild(svgEl('rect', { x: 4, y: 7, width: 40, height: 6, rx: 0.6, fill: '#fafafa' }));
+      g.appendChild(svgEl('text', {
+        x: 24, y: 11.6, 'text-anchor': 'middle', 'font-size': 4.2, 'font-weight': 700,
+        fill: '#c25d3c', 'font-family': 'ui-monospace, Consolas, monospace',
+      })).textContent = 'SODA';
+      // glass window with shelves of cans
+      g.appendChild(svgEl('rect', { x: 4, y: 16, width: 40, height: 40, rx: 1, fill: '#0c1424' })); // dark inside
+      g.appendChild(svgEl('rect', { x: 5, y: 17, width: 38, height: 38, fill: '#1c2a40', opacity: 0.7 })); // glass tint
+      // Three shelves of cans (different colours per row)
+      const canColors = ['#5b8def', '#5fae8c', '#e0a458'];
+      for (let row = 0; row < 3; row++) {
+        const y = 19 + row * 12;
+        // shelf
+        g.appendChild(svgEl('rect', { x: 5, y: y + 10, width: 38, height: 0.6, fill: '#7a8294' }));
+        // 5 cans per row
+        for (let c = 0; c < 5; c++) {
+          const x = 6.5 + c * 7;
+          g.appendChild(svgEl('rect', { x, y, width: 5, height: 9, rx: 0.5, fill: canColors[row] }));     // can body
+          g.appendChild(svgEl('rect', { x, y, width: 5, height: 1.2, fill: '#cccccc' }));                // top rim
+        }
+      }
+      // payment + slot at the bottom
+      g.appendChild(svgEl('rect', { x: 6, y: 58, width: 16, height: 10, rx: 0.6, fill: '#1c1f24' }));    // keypad
+      // keypad buttons
+      for (let r2 = 0; r2 < 3; r2++) for (let c2 = 0; c2 < 3; c2++) {
+        g.appendChild(svgEl('rect', { x: 8 + c2 * 4, y: 60 + r2 * 3, width: 2.5, height: 2, rx: 0.3, fill: '#5b8def', opacity: 0.7 }));
+      }
+      // coin slot + delivery slot
+      g.appendChild(svgEl('rect', { x: 26, y: 60, width: 16, height: 1.2, fill: '#2b2620' }));           // coin slot
+      g.appendChild(svgEl('rect', { x: 26, y: 64, width: 16, height: 5, rx: 0.6, fill: '#1c1f24' }));    // delivery tray
+      return g;
+    }
+    if (kind === 'endtable') { // small square end table beside the sofa
+      const g = svgEl('svg', { viewBox: '0 0 24 18', class: 'desk', width: 24, height: 18 });
+      // top
+      g.appendChild(svgEl('rect', { x: 1, y: 1, width: 22, height: 11, rx: 1.5, fill: '#8d6a4a' }));
+      g.appendChild(svgEl('rect', { x: 1, y: 1, width: 22, height: 3, rx: 1.5, fill: '#a07a52' })); // highlight
+      // legs
+      g.appendChild(svgEl('rect', { x: 2, y: 12, width: 3, height: 5, fill: '#6b4f36' }));
+      g.appendChild(svgEl('rect', { x: 19, y: 12, width: 3, height: 5, fill: '#6b4f36' }));
+      return g;
+    }
+    if (kind === 'warmlamp') { // floor lamp with warm glow — sits on end table
+      const g = svgEl('svg', { viewBox: '0 0 18 30', class: 'desk warm-lamp', width: 18, height: 30 });
+      // soft glow behind the shade
+      g.appendChild(svgEl('circle', { cx: 9, cy: 9, r: 10, fill: '#fff1c4', opacity: 0.35, class: 'wl-glow' }));
+      // shade (warm amber)
+      g.appendChild(svgEl('path', { d: 'M3 12 L15 12 L13 4 L5 4 Z', fill: '#e0a458' }));
+      // bulb glow at base of shade
+      g.appendChild(svgEl('rect', { x: 5, y: 11, width: 8, height: 1.4, fill: '#fff1c4' }));
+      // pole
+      g.appendChild(svgEl('rect', { x: 8, y: 12, width: 2, height: 14, fill: '#5a4636' }));
+      // base
+      g.appendChild(svgEl('ellipse', { cx: 9, cy: 27, rx: 5, ry: 1.4, fill: '#2b2620' }));
       return g;
     }
     if (kind === 'arcade') { // upright arcade cabinet — purple, blinking screen
@@ -2202,6 +2609,16 @@ const OfficePro = (() => {
     for (const [id, entry] of agents) {
       if (!seen.has(id)) { clearTimeout(entry.stepTimer); releaseSlot(entry); entry.node.remove(); agents.delete(id); }
     }
+    // Mark which work rooms currently hold an agent — used by CSS to pause
+    // ambient room animations (server LEDs, monitor binary stream, …) when a
+    // room is empty so the office doesn't keep blinking at no one.
+    const populated = new Set();
+    for (const [, entry] of agents) {
+      if (entry.room && entry.room.kind === 'room') populated.add(entry.room.activity);
+    }
+    for (const roomEl of $floor.querySelectorAll('.room')) {
+      roomEl.classList.toggle('has-agent', populated.has(roomEl.dataset.activity));
+    }
     const n = agents.size;
     $count.textContent = `${n} agent${n === 1 ? '' : 's'}`;
     $empty.hidden = n > 0;
@@ -2254,17 +2671,39 @@ const OfficePro = (() => {
     }
   }
 
+  /** Push the current local time into every .digital-clock SVG. Called on
+   *  start + every 30s afterwards so the lounge clock stays in sync. */
+  function updateDigitalClocks() {
+    if (!$floor) return;
+    const now = new Date();
+    let h = now.getHours();
+    const m = now.getMinutes();
+    const meridiem = h >= 12 ? 'PM' : 'AM';
+    h = h % 12; if (h === 0) h = 12;
+    const time = `${h}:${m < 10 ? '0' + m : m}`;
+    for (const clock of $floor.querySelectorAll('.digital-clock')) {
+      const t = clock.querySelector('.dc-time');
+      const md = clock.querySelector('.dc-meridiem');
+      if (t)  t.textContent  = time;
+      if (md) md.textContent = meridiem;
+    }
+  }
+
   let rotateTimer = null;
+  let clockTimer = null;
   function start() {
     if (started) return;
     started = true;
     buildFloor();
+    updateDigitalClocks();
     applyBubbles();
     rotateTimer = setInterval(() => { rotateOffset++; applyBubbles(); }, 5000);
+    clockTimer  = setInterval(updateDigitalClocks, 30000);
     window.addEventListener('resize', fitFloor);
   }
   function stop() {
     if (rotateTimer) { clearInterval(rotateTimer); rotateTimer = null; }
+    if (clockTimer)  { clearInterval(clockTimer);  clockTimer  = null; }
     window.removeEventListener('resize', fitFloor);
     started = false;
   }

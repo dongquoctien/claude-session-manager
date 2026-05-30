@@ -1089,9 +1089,133 @@ html, body {
 }
 .arcade-bumper { animation: arcade-bumper 1.2s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
 @keyframes arcade-bumper { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+
+/* Server rack LEDs blink and monitor screens scroll a binary stream — but
+   only while an agent is in the room. Empty rooms sit still and the dual-
+   monitor screens go dark (no static binary) so the office doesn't keep
+   chattering at no one. The .has-agent class is toggled on each .room by
+   the update loop in OfficePro. */
+.server-led { opacity: 0.7; }
+.dm-ticker  { visibility: hidden; }                  /* screens off when empty */
+.room.has-agent .server-led {
+  animation: server-led 1.4s ease-in-out infinite;
+  opacity: 1;
+}
+.room.has-agent .dm-ticker {
+  visibility: visible;
+  animation: dm-scroll 3.4s linear infinite;
+}
+
+/* "Data transfer" window in the Browsing room — themed off the app palette
+   (--bg-elev surface, --border outline, --accent for the doc + progress).
+   Documents fly from the globe to the computer and the progress bar fills
+   in segments — but only while an agent is in the room. */
+.ft-frame    { fill: var(--border); }
+.ft-surface  { fill: var(--bg-elev); }
+.ft-stroke   { stroke: var(--text-dim); fill: none; }
+.ft-doc-paper  { fill: var(--accent); }
+.ft-doc-letter { fill: var(--on-accent); }
+.ft-seg      { fill: var(--accent); }
+.ft-doc, .ft-seg { visibility: hidden; }
+.room.has-agent .ft-doc-1 {
+  visibility: visible;
+  animation: ft-fly 1.6s ease-in-out infinite;
+}
+.room.has-agent .ft-doc-2 {
+  visibility: visible;
+  animation: ft-fly 1.6s ease-in-out infinite;
+  animation-delay: 0.8s;
+}
+.room.has-agent .ft-seg {
+  animation: ft-seg-fill 2s steps(1, end) infinite;
+}
+@keyframes ft-fly {
+  0%   { transform: translate(25px, 22px); opacity: 0; }
+  15%  { transform: translate(25px, 20px); opacity: 1; }
+  50%  { transform: translate(50px, 14px); }
+  85%  { transform: translate(75px, 20px); opacity: 1; }
+  100% { transform: translate(75px, 22px); opacity: 0; }
+}
+@keyframes ft-seg-fill {
+  0%, 95% { visibility: visible; }
+  100%    { visibility: hidden; }
+}
+
+/* Investigation magnifier (Searching room) — sweeps across the case board's
+   clue row while an agent is in the room, idles off to the left otherwise. */
+.cb-magnifier { transform: translate(8px, 30px); }
+.room.has-agent .cb-magnifier {
+  animation: cb-sweep 3.2s ease-in-out infinite alternate;
+}
+@keyframes cb-sweep {
+  from { transform: translate(14px, 30px); }
+  to   { transform: translate(64px, 30px); }
+}
+
+/* Org-chart child nodes (Spawning room) — pulse one-by-one when an agent is
+   spawning sub-agents. Static otherwise. */
+.org-node { transform-origin: center; transform-box: fill-box; }
+.room.has-agent .org-node {
+  animation: org-pulse 1.6s ease-in-out infinite;
+}
+@keyframes org-pulse {
+  0%, 100% { transform: scale(1);    opacity: 1; }
+  50%      { transform: scale(1.35); opacity: 0.75; }
+}
+
+/* Warm lamp glow — gentle breathing so the lounge always feels lived-in. */
+.wl-glow { animation: wl-breath 3.6s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+@keyframes wl-breath {
+  0%, 100% { opacity: 0.30; transform: scale(1); }
+  50%      { opacity: 0.45; transform: scale(1.08); }
+}
+
+/* Reading-lamp glow (and Coding lamp): a warm pool of light around the bulb
+   that only "lights up" when someone is actually in the room. Idle = dim. */
+.rd-glow { opacity: 0.08; transform-origin: center; transform-box: fill-box; }
+.room.has-agent .rd-glow {
+  animation: rd-pulse 2.6s ease-in-out infinite;
+}
+@keyframes rd-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(1); }
+  50%      { opacity: 0.45; transform: scale(1.18); }
+}
+
+/* Coding monitor — cursor blinks and the code lines scroll upward as if
+   the agent is typing/scrolling through their editor. */
+.cd-cursor { visibility: hidden; }
+.room.has-agent .cd-cursor {
+  visibility: visible;
+  animation: cd-blink 1s steps(1, end) infinite;
+}
+.room.has-agent .cd-code {
+  animation: cd-scroll 2.4s linear infinite;
+}
+@keyframes cd-blink {
+  0%, 50%   { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+@keyframes cd-scroll {
+  from { transform: translateY(0);  }
+  to   { transform: translateY(-3px); }
+}
+@keyframes server-led { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+@keyframes dm-scroll  { from { transform: translateY(0); } to { transform: translateY(-24px); } }
+
 @media (prefers-reduced-motion: reduce) {
   .arcade-screen { animation: none; }
   .arcade-bumper { animation: none; }
+  .room.has-agent .server-led { animation: none; }
+  .room.has-agent .dm-ticker  { animation: none; }
+  .room.has-agent .ft-doc-1,
+  .room.has-agent .ft-doc-2,
+  .room.has-agent .ft-seg     { animation: none; }
+  .room.has-agent .cb-magnifier { animation: none; }
+  .room.has-agent .org-node     { animation: none; }
+  .room.has-agent .rd-glow      { animation: none; }
+  .room.has-agent .cd-cursor,
+  .room.has-agent .cd-code      { animation: none; }
+  .wl-glow                      { animation: none; }
 }
 
 /* Agent avatar: a little SVG character with a name below. Positioned absolutely
