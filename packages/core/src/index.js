@@ -1,6 +1,7 @@
-export { projectsDir, projectsDirExists, slugToLabel } from './paths.js';
+export { configDir, projectsDir, projectsDirExists, sessionsDir, slugToLabel } from './paths.js';
 export { parseHead, MAX_HEAD_LINES } from './parser.js';
 export { resolveTitle, oneLine } from './title.js';
+export { sessionNameMap } from './sessionNames.js';
 export { scanSessions, scanMetrics, sessionTokenChart, findSession, searchSessions, filterSessions } from './scanner.js';
 export {
   parseMetrics,

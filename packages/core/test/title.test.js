@@ -20,6 +20,28 @@ test('oneLine collapses whitespace and truncates', () => {
   assert.ok(out.endsWith('…'));
 });
 
+test('tier 0: customName (/rename) beats aiTitle', () => {
+  const r = resolveTitle(
+    { ...base, aiTitle: 'AI Title', lastPrompt: 'ignored' },
+    Date.now(),
+    'Exclusive Dashboard',
+  );
+  assert.equal(r.source, 'customName');
+  assert.equal(r.title, 'Exclusive Dashboard');
+});
+
+test('customName is one-lined like other titles', () => {
+  const r = resolveTitle({ ...base }, Date.now(), '  Renamed\n\n  Session  ');
+  assert.equal(r.source, 'customName');
+  assert.equal(r.title, 'Renamed Session');
+});
+
+test('blank customName is ignored, falls through to aiTitle', () => {
+  const r = resolveTitle({ ...base, aiTitle: 'My Title' }, Date.now(), '   ');
+  assert.equal(r.source, 'aiTitle');
+  assert.equal(r.title, 'My Title');
+});
+
 test('tier 1: prefers aiTitle', () => {
   const r = resolveTitle({ ...base, aiTitle: 'My Title', lastPrompt: 'ignored' }, Date.now());
   assert.equal(r.source, 'aiTitle');
