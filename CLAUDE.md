@@ -59,9 +59,18 @@ npm run desktop:dist     # build Windows .exe installer
   is the oldest. Using the head made web disagree with `/resume`.
 - `aiTitle` may sit deep in the file; `lastPrompt` around line ~16. The parser
   streams the head, capped (`MAX_HEAD_LINES`), so 50MB+ files stay fast.
-- ~30% of conversations have no `aiTitle` → 4-tier title fallback
-  (`aiTitle → lastPrompt → first user msg → "Untitled · date"`); harness
-  wrappers (`<local-command-stdout>`, `<command-name>`, …) are filtered out.
+- ~30% of conversations have no `aiTitle` → 5-tier title fallback
+  (`customName → aiTitle → lastPrompt → first user msg → "Untitled · date"`);
+  harness wrappers (`<local-command-stdout>`, `<command-name>`, …) are filtered.
+- **`/rename` does NOT touch the `.jsonl`.** Claude Code's `/rename` writes the
+  new name to a per-process file `~/.claude/sessions/<pid>.json` (the `name`
+  field), keyed by **PID**, with the real `sessionId` *inside* the file — NOT to
+  `aiTitle`. So a renamed conversation still shows its old AI title unless we
+  read that dir. `sessionNames.js` builds a `sessionId → name` map (latest
+  `updatedAt`/`startedAt` wins, since PIDs get recycled and stale files linger),
+  and the scanner feeds it as the top `customName` title tier. Best-effort,
+  live-process metadata: an old session whose PID file was overwritten just has
+  no name there and falls through to `aiTitle`.
 - Honors `CLAUDE_CONFIG_DIR` (tests rely on this to use a temp dir).
 
 ## Launcher gotchas (hard-won — keep the fixes)

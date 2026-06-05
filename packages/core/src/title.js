@@ -11,19 +11,29 @@ export function oneLine(s, max = 80) {
 }
 
 /**
- * Resolve a human-readable title for a conversation using a 4-tier fallback,
+ * Resolve a human-readable title for a conversation using a 5-tier fallback,
  * since ~30% of conversations have no aiTitle.
  *
- *   1. aiTitle        (best — AI-generated)
- *   2. lastPrompt     (most recent prompt, truncated)
- *   3. firstUserText  (first human message, truncated)
- *   4. "Untitled · <date>"
+ *   1. customName    (user's own `/rename`, from ~/.claude/sessions — beats all)
+ *   2. aiTitle       (AI-generated)
+ *   3. lastPrompt    (most recent prompt, truncated)
+ *   4. firstUserText (first human message, truncated)
+ *   5. "Untitled · <date>"
+ *
+ * `customName` is passed in by the scanner (it lives outside the .jsonl, keyed
+ * by sessionId — see {@link import('./sessionNames.js')}), so it's an explicit
+ * argument rather than a field on `meta`.
  *
  * @param {import('./parser.js').RawMeta} meta
- * @param {Date|number} mtime fallback date for tier 4
- * @returns {{ title: string, source: 'aiTitle'|'lastPrompt'|'firstUser'|'fallback' }}
+ * @param {Date|number} mtime fallback date for the last tier
+ * @param {string|null} [customName]  user-set name via Claude Code's /rename
+ * @returns {{ title: string, source: 'customName'|'aiTitle'|'lastPrompt'|'firstUser'|'fallback' }}
  */
-export function resolveTitle(meta, mtime) {
+export function resolveTitle(meta, mtime, customName = null) {
+  if (customName) {
+    const t = oneLine(customName);
+    if (t) return { title: t, source: 'customName' };
+  }
   if (meta.aiTitle) {
     return { title: oneLine(meta.aiTitle), source: 'aiTitle' };
   }

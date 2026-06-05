@@ -3,15 +3,35 @@ import path from 'node:path';
 import fs from 'node:fs';
 
 /**
+ * Resolve the Claude Code config directory (`~/.claude`).
+ * Honors the CLAUDE_CONFIG_DIR override that Claude Code itself respects
+ * (tests rely on this to point at a temp dir).
+ * @returns {string} absolute path (may not exist yet)
+ */
+export function configDir() {
+  return process.env.CLAUDE_CONFIG_DIR
+    ? process.env.CLAUDE_CONFIG_DIR
+    : path.join(os.homedir(), '.claude');
+}
+
+/**
  * Resolve the Claude Code projects directory (`~/.claude/projects`).
  * Honors the CLAUDE_CONFIG_DIR override that Claude Code itself respects.
  * @returns {string} absolute path (may not exist yet)
  */
 export function projectsDir() {
-  const configDir = process.env.CLAUDE_CONFIG_DIR
-    ? process.env.CLAUDE_CONFIG_DIR
-    : path.join(os.homedir(), '.claude');
-  return path.join(configDir, 'projects');
+  return path.join(configDir(), 'projects');
+}
+
+/**
+ * Resolve the Claude Code live-sessions directory (`~/.claude/sessions`).
+ * This is where Claude Code records per-process session metadata, including
+ * the custom `name` set via the `/rename` slash command (keyed by PID file,
+ * NOT by sessionId — see {@link import('./sessionNames.js')}).
+ * @returns {string} absolute path (may not exist yet)
+ */
+export function sessionsDir() {
+  return path.join(configDir(), 'sessions');
 }
 
 /**

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { projectsDir, slugToLabel } from './paths.js';
 import { parseHead } from './parser.js';
 import { resolveTitle } from './title.js';
+import { sessionNameMap } from './sessionNames.js';
 import { favoriteSet } from './state.js';
 import { MetricsCache, resolveActivity, isActive, bucketTokenSeries } from './metrics.js';
 
@@ -54,12 +55,17 @@ async function mapLimit(items, limit, fn) {
  *
  * @param {Object} [opts]
  * @param {string} [opts.dir]            override projects dir (testing)
+ * @param {string} [opts.sessionsDir]    override the /rename sessions dir (testing)
  * @param {number} [opts.concurrency]
  * @returns {Promise<Session[]>}
  */
 export async function scanSessions(opts = {}) {
   const root = opts.dir || projectsDir();
   const concurrency = opts.concurrency || DEFAULT_CONCURRENCY;
+
+  // Custom names set via Claude Code's `/rename` live outside the .jsonl, in
+  // ~/.claude/sessions, keyed by sessionId. Load the map once per scan.
+  const names = sessionNameMap(opts.sessionsDir ? { dir: opts.sessionsDir } : {});
 
   let slugs;
   try {
@@ -101,8 +107,8 @@ export async function scanSessions(opts = {}) {
 
     const meta = await parseHead(file);
     const mtime = stat.mtimeMs;
-    const { title, source } = resolveTitle(meta, mtime);
     const id = path.basename(file, '.jsonl');
+    const { title, source } = resolveTitle(meta, mtime, names.get(id) || null);
 
     let cwdExists = false;
     if (meta.cwd) {
