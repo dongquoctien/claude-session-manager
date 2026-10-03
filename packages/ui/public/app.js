@@ -64,6 +64,12 @@ let allRows = []; // flat list of session objects in DOM order (for keyboard nav
 let activeIndex = -1;
 let activeFilter = 'all'; // 'all' | 'fav' | 'recent'
 let branchesLoaded = false;
+// List layout: 'folder' groups rows under a header per project; 'recent' is
+// one flat newest-first list with the folder shown on each row.
+let viewMode = (() => {
+  try { return localStorage.getItem('csm-sessions-view') === 'recent' ? 'recent' : 'folder'; } catch (e) { return 'folder'; }
+})();
+let lastSessions = []; // last fetched list, so a layout switch re-renders without a refetch
 
 // Multi-select for bulk delete. Keyed by id|projectSlug so two recordings of
 // the same UUID (worktree duplicates) are tracked separately.
@@ -278,13 +284,134 @@ function icon(name, cls) {
   return svg;
 }
 
+function missingBadge() {
+  const badge = el('span', 'badge missing');
+  badge.appendChild(icon('alert'));
+  badge.appendChild(el('span', null, 'missing'));
+  return badge;
+}
+
+/**
+ * Build one session row and register it in `allRows` (keyboard nav and
+ * shift-click ranges use that flat order).
+ * @param {object} s session
+ * @param {{ showFolder: boolean, syncGroupCheck: () => void }} opts
+ *   showFolder — put the folder on the row (flat layout has no group header);
+ *   syncGroupCheck — refreshes the owning group's select-all box.
+ */
+function buildRow(s, { showFolder, syncGroupCheck }) {
+  const rowIndex = allRows.length; // flat index for shift-click ranges
+  // role=button (not a real <button>) so we can nest the star <button>.
+  const row = el('div', 'row');
+  row.dataset.id = s.id;
+  row.setAttribute('role', 'button');
+  row.tabIndex = 0;
+
+  // Selection checkbox (bulk delete). Restores checked state on re-render.
+  const check = el('input', 'row-check');
+  check.type = 'checkbox';
+  check.setAttribute('aria-label', `Select ${s.title}`);
+  check.checked = selected.has(selKey(s));
+  if (check.checked) row.classList.add('selected');
+  check.addEventListener('click', (e) => {
+    e.stopPropagation(); // don't trigger row open
+    if (e.shiftKey && lastCheckedIndex >= 0) {
+      selectRange(lastCheckedIndex, rowIndex, check.checked);
+    }
+    setSelected(s, check.checked);
+    row.classList.toggle('selected', check.checked);
+    lastCheckedIndex = rowIndex;
+    syncGroupCheck();
+    updateSelectionBar();
+  });
+  row.appendChild(check);
+
+  // Star toggle (favorite)
+  const star = el('button', 'row-star' + (s.favorite ? ' on' : ''));
+  star.setAttribute('aria-label', s.favorite ? 'Unfavorite' : 'Favorite');
+  star.appendChild(icon(s.favorite ? 'star-filled' : 'star'));
+  star.addEventListener('click', (e) => {
+    e.stopPropagation(); // don't trigger row open
+    doFavorite(s, star);
+  });
+  row.appendChild(star);
+
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-title', s.title));
+  const meta = el('div', 'row-meta');
+  if (showFolder) {
+    const folder = el('span', 'folder');
+    folder.title = s.cwd || s.projectLabel;
+    folder.appendChild(icon('folder'));
+    folder.appendChild(el('span', null, s.projectLabel));
+    meta.appendChild(folder);
+    if (!s.cwdExists) meta.appendChild(missingBadge());
+  }
+  if (s.branch) {
+    const branch = el('span', 'branch');
+    branch.appendChild(icon('git-branch'));
+    branch.appendChild(el('span', null, s.branch));
+    meta.appendChild(branch);
+  }
+  meta.appendChild(el('span', 'when', timeAgo(s.mtime)));
+  meta.appendChild(el('span', 'id', s.id.slice(0, 8)));
+  if (s.titleSource !== 'aiTitle') {
+    meta.appendChild(el('span', 'src', s.titleSource));
+  }
+  main.appendChild(meta);
+  // Preview of the last prompt, if any and not already the title.
+  if (s.lastPrompt && s.lastPrompt !== s.title) {
+    main.appendChild(el('div', 'row-preview', s.lastPrompt));
+  }
+  row.appendChild(main);
+
+  const open = el('span', 'row-open');
+  open.appendChild(el('span', null, 'Open'));
+  open.appendChild(icon('play'));
+  row.appendChild(open);
+
+  // Trash button — last, separated from Open by a divider so it's not
+  // mistaken for the primary action.
+  const del = el('button', 'row-del');
+  del.setAttribute('aria-label', 'Move to trash');
+  del.setAttribute('title', 'Move to trash');
+  del.appendChild(icon('trash'));
+  del.addEventListener('click', (e) => {
+    e.stopPropagation();
+    doDelete(s, row);
+  });
+  row.appendChild(del);
+
+  row.addEventListener('click', () => doOpen(s));
+  row.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doOpen(s); }
+  });
+  allRows.push({ node: row, session: s, checkbox: check, syncGroupCheck });
+  return { row, check };
+}
+
 function render(sessions) {
+  lastSessions = sessions;
   $list.innerHTML = '';
   allRows = [];
   activeIndex = -1;
 
   if (sessions.length === 0) {
     $list.appendChild(el('div', 'empty', 'No conversations found.'));
+    return;
+  }
+
+  if (viewMode === 'recent') {
+    // One flat list, newest activity first, so recent conversations from
+    // different folders sit next to each other.
+    const flat = el('section', 'group flat');
+    const noop = () => {};
+    const byRecent = sessions.slice().sort((a, b) => b.mtime - a.mtime);
+    for (const s of byRecent) {
+      flat.appendChild(buildRow(s, { showFolder: true, syncGroupCheck: noop }).row);
+    }
+    $list.appendChild(flat);
+    updateSelectionBar();
     return;
   }
 
@@ -311,12 +438,7 @@ function render(sessions) {
 
     head.appendChild(icon('folder', 'folder-icon'));
     head.appendChild(el('span', 'group-label', label));
-    if (items[0] && !items[0].cwdExists) {
-      const badge = el('span', 'badge missing');
-      badge.appendChild(icon('alert'));
-      badge.appendChild(el('span', null, 'missing'));
-      head.appendChild(badge);
-    }
+    if (items[0] && !items[0].cwdExists) head.appendChild(missingBadge());
     head.appendChild(el('span', 'group-count', String(items.length)));
     group.appendChild(head);
     const syncGroupCheck = () => {
@@ -326,87 +448,9 @@ function render(sessions) {
     };
 
     for (const s of items) {
-      const rowIndex = allRows.length; // flat index for shift-click ranges
-      // role=button (not a real <button>) so we can nest the star <button>.
-      const row = el('div', 'row');
-      row.dataset.id = s.id;
-      row.setAttribute('role', 'button');
-      row.tabIndex = 0;
-
-      // Selection checkbox (bulk delete). Restores checked state on re-render.
-      const check = el('input', 'row-check');
-      check.type = 'checkbox';
-      check.setAttribute('aria-label', `Select ${s.title}`);
-      check.checked = selected.has(selKey(s));
-      if (check.checked) row.classList.add('selected');
-      check.addEventListener('click', (e) => {
-        e.stopPropagation(); // don't trigger row open
-        if (e.shiftKey && lastCheckedIndex >= 0) {
-          selectRange(lastCheckedIndex, rowIndex, check.checked);
-        }
-        setSelected(s, check.checked);
-        row.classList.toggle('selected', check.checked);
-        lastCheckedIndex = rowIndex;
-        syncGroupCheck();
-        updateSelectionBar();
-      });
-      row.appendChild(check);
+      const { row, check } = buildRow(s, { showFolder: false, syncGroupCheck });
       groupRows.push({ checkbox: check, session: s, row });
-
-      // Star toggle (favorite)
-      const star = el('button', 'row-star' + (s.favorite ? ' on' : ''));
-      star.setAttribute('aria-label', s.favorite ? 'Unfavorite' : 'Favorite');
-      star.appendChild(icon(s.favorite ? 'star-filled' : 'star'));
-      star.addEventListener('click', (e) => {
-        e.stopPropagation(); // don't trigger row open
-        doFavorite(s, star);
-      });
-      row.appendChild(star);
-
-      const main = el('div', 'row-main');
-      main.appendChild(el('div', 'row-title', s.title));
-      const meta = el('div', 'row-meta');
-      if (s.branch) {
-        const branch = el('span', 'branch');
-        branch.appendChild(icon('git-branch'));
-        branch.appendChild(el('span', null, s.branch));
-        meta.appendChild(branch);
-      }
-      meta.appendChild(el('span', 'when', timeAgo(s.mtime)));
-      meta.appendChild(el('span', 'id', s.id.slice(0, 8)));
-      if (s.titleSource !== 'aiTitle') {
-        meta.appendChild(el('span', 'src', s.titleSource));
-      }
-      main.appendChild(meta);
-      // Preview of the last prompt, if any and not already the title.
-      if (s.lastPrompt && s.lastPrompt !== s.title) {
-        main.appendChild(el('div', 'row-preview', s.lastPrompt));
-      }
-      row.appendChild(main);
-
-      const open = el('span', 'row-open');
-      open.appendChild(el('span', null, 'Open'));
-      open.appendChild(icon('play'));
-      row.appendChild(open);
-
-      // Trash button — last, separated from Open by a divider so it's not
-      // mistaken for the primary action.
-      const del = el('button', 'row-del');
-      del.setAttribute('aria-label', 'Move to trash');
-      del.setAttribute('title', 'Move to trash');
-      del.appendChild(icon('trash'));
-      del.addEventListener('click', (e) => {
-        e.stopPropagation();
-        doDelete(s, row);
-      });
-      row.appendChild(del);
-
-      row.addEventListener('click', () => doOpen(s));
-      row.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doOpen(s); }
-      });
       group.appendChild(row);
-      allRows.push({ node: row, session: s, checkbox: check, syncGroupCheck });
     }
     syncGroupCheck();
     $list.appendChild(group);
@@ -670,6 +714,37 @@ for (const chip of $chips) {
 }
 $branchFilter.onChange(refresh);
 $hideOrphans.addEventListener('change', refresh);
+
+// The filterbar wraps to two lines on narrow windows; publish its real height
+// so the sticky folder headers and selection bar stay just below it.
+const $filterbar = document.querySelector('.filterbar');
+new ResizeObserver(() => {
+  document.documentElement.style.setProperty('--filterbar-h', `${$filterbar.offsetHeight}px`);
+}).observe($filterbar);
+
+// --- list layout (Folders | Recent) ---------------------------------------
+
+const $viewBtns = [...document.querySelectorAll('#view-mode .seg-btn')];
+
+function applyViewMode() {
+  for (const b of $viewBtns) {
+    const on = b.dataset.view === viewMode;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  }
+}
+
+for (const b of $viewBtns) {
+  b.addEventListener('click', () => {
+    if (b.dataset.view === viewMode) return;
+    viewMode = b.dataset.view === 'recent' ? 'recent' : 'folder';
+    try { localStorage.setItem('csm-sessions-view', viewMode); } catch (e) {}
+    applyViewMode();
+    lastCheckedIndex = -1; // row order changed, so the shift-click anchor is stale
+    render(lastSessions);
+  });
+}
+applyViewMode();
 
 // --- selection bar --------------------------------------------------------
 

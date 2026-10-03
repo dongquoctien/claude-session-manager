@@ -342,7 +342,7 @@ html, body {
      own scope: when a group scrolls past, the next header simply takes over —
      it does not overlap rows of OTHER groups. z-index keeps it above rows. */
   position: sticky;
-  top: calc(var(--topbar-h) + 51px);
+  top: calc(var(--topbar-h) + var(--filterbar-h, 51px));
 	z-index: 5;
 	background: var(--bg);
 	margin: 0 -18px 8px;
@@ -445,6 +445,22 @@ html, body {
   color: var(--magenta);
 }
 .row-meta .branch .icon { width: 13px; height: 13px; }
+/* Folder note on each row in the flat "Recent" layout (replaces the group
+   header). The only part of the meta line allowed to shrink, so a long path
+   ellipsizes instead of pushing branch/time off the row. */
+.row-meta > * { flex: none; }
+.row-meta .folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--accent);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+.row-meta .folder > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-meta .folder .icon { flex: none; width: 13px; height: 13px; }
+.row-meta .badge.missing { font-size: 10px; padding: 0 5px; }
 .row-meta .id { font-family: ui-monospace, Consolas, monospace; }
 .row-meta .src {
   color: var(--text-dim);
@@ -557,7 +573,7 @@ html, body {
 
 .selection-bar {
   position: sticky;
-  top: calc(var(--topbar-h) + 44px); /* under the topbar + tab/filter bar */
+  top: calc(var(--topbar-h) + var(--filterbar-h, 51px)); /* under the topbar + filter bar */
   z-index: 8;
   display: flex;
   align-items: center;
@@ -1352,6 +1368,10 @@ html, body {
   color: #fff;
 }
 .seg-btn:focus-visible { outline: 2px solid var(--accent-dim); outline-offset: 1px; }
+/* Sessions list layout picker (Folders | Recent), right end of the filterbar. */
+.view-mode-seg { margin-left: auto; }
+.view-mode-seg .seg-btn { display: inline-flex; align-items: center; gap: 5px; }
+.view-mode-seg .icon { width: 13px; height: 13px; }
 #office-classic {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

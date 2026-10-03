@@ -180,6 +180,18 @@
         <span class="switch-track"><span class="switch-knob"></span></span>
         <span class="switch-label">Multi-select</span>
       </label>
+      <!-- List layout: grouped under folder headers, or one flat newest-first
+           list with the folder shown on each row. Remembered per browser. -->
+      <div id="view-mode" class="seg view-mode-seg" role="group" aria-label="List layout">
+        <button type="button" class="seg-btn" data-view="folder" aria-pressed="true"
+                title="Group conversations under their folder">
+          <svg class="icon" viewBox="0 0 24 24"><use href="#i-folder"/></svg> Folders
+        </button>
+        <button type="button" class="seg-btn" data-view="recent" aria-pressed="false"
+                title="One list, most recently active first">
+          <svg class="icon" viewBox="0 0 24 24"><use href="#i-clock"/></svg> Recent
+        </button>
+      </div>
     </div>
 
     <!-- Selection action bar — shown only in select mode with ≥1 row checked. -->
