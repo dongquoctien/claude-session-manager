@@ -25,9 +25,9 @@ export function projectsDir() {
 
 /**
  * Resolve the Claude Code live-sessions directory (`~/.claude/sessions`).
- * This is where Claude Code records per-process session metadata, including
- * the custom `name` set via the `/rename` slash command (keyed by PID file,
- * NOT by sessionId — see {@link import('./sessionNames.js')}).
+ * This is where Claude Code records per-process session metadata, including a
+ * `name` (keyed by PID file, NOT by sessionId; only `nameSource: "user"` is a
+ * `/rename` — see {@link import('./sessionNames.js')}).
  * @returns {string} absolute path (may not exist yet)
  */
 export function sessionsDir() {

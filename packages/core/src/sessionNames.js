@@ -3,15 +3,25 @@ import path from 'node:path';
 import { sessionsDir } from './paths.js';
 
 /**
- * Claude Code's `/rename` slash command does NOT write the new title into the
- * conversation `.jsonl` (where we read `aiTitle` etc.). Instead it stores a
- * `name` field in a per-process metadata file under `~/.claude/sessions/`.
+ * FALLBACK source for `/rename` names. The primary source is the conversation
+ * `.jsonl` itself: `/rename` appends `{"type":"custom-title","customTitle":…}`
+ * there, and the parser reads the latest one (see `parser.js`). This module
+ * only covers a live session whose rename record is outside the parser's
+ * head/tail windows.
  *
- * Those files are keyed by PID (`<pid>.json`), not by sessionId, and look like:
+ * Every running Claude Code process keeps a metadata file under
+ * `~/.claude/sessions/`, keyed by PID (`<pid>.json`), not by sessionId:
  *
- *   {"pid":33560,"sessionId":"aa90bdc5-…","name":"Exclusive Dashboard",…}
+ *   {"pid":33560,"sessionId":"aa90bdc5-…","name":"VOC","nameSource":"user",…}
  *
- * Two consequences we handle here:
+ * Things we handle here:
+ *  - EVERY live process has a `name`, but most are generated, not chosen:
+ *    `nameSource: "derived"` is an auto name built from the folder plus a
+ *    short suffix (`oh-api-08`, `claude-session-manager-10`). Only
+ *    `nameSource: "user"` is a `/rename`. Taking derived names was the bug
+ *    that replaced real titles with `oh-api-07`-style labels. A file with no
+ *    `nameSource` is skipped too: we can't tell what it is, and a real rename
+ *    is in the `.jsonl` anyway.
  *  - We must read every file and key the result by the `sessionId` INSIDE it,
  *    not by the filename.
  *  - PIDs get recycled, so several files may name different sessions, and a
@@ -19,9 +29,8 @@ import { sessionsDir } from './paths.js';
  *    that, but we do prefer the most-recently-updated record per sessionId
  *    (via `updatedAt`/`startedAt`), so the latest rename wins.
  *
- * This is best-effort, live-process metadata — older sessions whose PID file
- * has been overwritten simply won't have a name here, and we fall back to the
- * normal title tiers. We never throw on a missing/garbage file.
+ * The files only exist while the process runs. We never throw on a
+ * missing/garbage file.
  *
  * @param {Object} [opts]
  * @param {string} [opts.dir]  override the sessions dir (testing)
@@ -55,6 +64,7 @@ export function sessionNameMap(opts = {}) {
     }
     if (!d || typeof d !== 'object') continue;
     if (typeof d.sessionId !== 'string' || !d.sessionId) continue;
+    if (d.nameSource !== 'user') continue; // derived/auto name, not a /rename
     if (typeof d.name !== 'string') continue;
     const name = d.name.trim();
     if (!name) continue;
