@@ -91,3 +91,81 @@ test('falls back to head branch when tail has none', async () => {
   const m = await parseHead(file);
   assert.equal(m.gitBranch, 'only-branch');
 });
+
+// --- /rename title (`custom-title` records) -------------------------------
+// Claude Code's /rename appends {"type":"custom-title","customTitle":…} to the
+// .jsonl, and keeps re-appending the current one near the end of the file.
+
+test('no custom-title record -> customTitle is null', async () => {
+  const file = tmpJsonl('noct.jsonl', [
+    { type: 'user', message: { content: 'hi' }, cwd: 'C:\p', gitBranch: 'main' },
+    { type: 'ai-title', aiTitle: 'AI name' },
+  ]);
+  const m = await parseHead(file);
+  assert.equal(m.customTitle, null);
+});
+
+test('reads a custom-title written near the start (rename at startup)', async () => {
+  const file = tmpJsonl('ct-head.jsonl', [
+    { type: 'user', message: { content: 'hi' }, cwd: 'C:\p', gitBranch: 'main' },
+    { type: 'custom-title', customTitle: '  Allotment Increase Automation ', sessionId: 's' },
+    { type: 'agent-name', agentName: 'Allotment Increase Automation', sessionId: 's' },
+    { type: 'assistant', message: { content: 'ok' } },
+  ]);
+  const m = await parseHead(file);
+  assert.equal(m.customTitle, 'Allotment Increase Automation');
+});
+
+test('custom-title far past the head window is found in the tail', async () => {
+  // Real data: the first rename record can be 88k lines in (way past
+  // MAX_HEAD_LINES), but Claude Code re-appends it close to EOF.
+  const lines = [
+    { type: 'user', message: { content: 'start' }, cwd: 'D:\proj', gitBranch: 'main' },
+    { type: 'ai-title', aiTitle: 'AI generated name' },
+    { type: 'last-prompt', lastPrompt: 'p' },
+  ];
+  for (let i = 0; i < 2000; i++) lines.push({ type: 'assistant', message: { content: 'x'.repeat(80) } });
+  lines.push({ type: 'custom-title', customTitle: 'VCC', sessionId: 's' });
+  for (let i = 0; i < 20; i++) lines.push({ type: 'assistant', message: { content: 'y' } });
+  const file = tmpJsonl('ct-deep.jsonl', lines);
+  const m = await parseHead(file);
+  assert.equal(m.aiTitle, 'AI generated name');
+  assert.equal(m.customTitle, 'VCC');
+});
+
+test('renamed twice -> the LATEST custom-title wins', async () => {
+  const lines = [
+    { type: 'user', message: { content: 'hi' }, cwd: 'C:\p', gitBranch: 'main' },
+    { type: 'custom-title', customTitle: 'RPA', sessionId: 's' },
+    { type: 'assistant', message: { content: 'ok' } },
+    { type: 'custom-title', customTitle: 'Plugin Angular', sessionId: 's' },
+  ];
+  const m = await parseHead(tmpJsonl('ct-twice.jsonl', lines));
+  assert.equal(m.customTitle, 'Plugin Angular');
+
+  // Same, but the second rename is beyond the head window: tail must win.
+  const big = [lines[0], lines[1]];
+  for (let i = 0; i < 2000; i++) big.push({ type: 'assistant', message: { content: 'x'.repeat(80) } });
+  big.push(lines[3]);
+  const m2 = await parseHead(tmpJsonl('ct-twice-big.jsonl', big));
+  assert.equal(m2.customTitle, 'Plugin Angular');
+});
+
+test('a blank latest custom-title clears the name', async () => {
+  const file = tmpJsonl('ct-clear.jsonl', [
+    { type: 'user', message: { content: 'hi' }, cwd: 'C:\p' },
+    { type: 'custom-title', customTitle: 'Old', sessionId: 's' },
+    { type: 'custom-title', customTitle: '   ', sessionId: 's' },
+  ]);
+  const m = await parseHead(file);
+  assert.equal(m.customTitle, null);
+});
+
+test('the text "custom-title" inside a message is not a rename', async () => {
+  const file = tmpJsonl('ct-mention.jsonl', [
+    { type: 'user', message: { content: 'grep for "custom-title" please' }, cwd: 'C:\p' },
+    { type: 'assistant', message: { content: '{"type":"custom-title","customTitle":"Fake"}' } },
+  ]);
+  const m = await parseHead(file);
+  assert.equal(m.customTitle, null);
+});
