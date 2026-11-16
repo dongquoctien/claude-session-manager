@@ -1,6 +1,5 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { sessionsDir } from './paths.js';
+import { readSessionRecords } from './liveSessions.js';
 
 /**
  * FALLBACK source for `/rename` names. The primary source is the conversation
@@ -33,36 +32,16 @@ import { sessionsDir } from './paths.js';
  * missing/garbage file.
  *
  * @param {Object} [opts]
- * @param {string} [opts.dir]  override the sessions dir (testing)
+ * @param {string} [opts.dir]         override the sessions dir (testing)
+ * @param {object[]} [opts.records]   pre-read records (one dir read per scan)
  * @returns {Map<string, string>}  sessionId -> custom name (non-empty, trimmed)
  */
 export function sessionNameMap(opts = {}) {
-  const dir = opts.dir || sessionsDir();
+  const records = opts.records || readSessionRecords(opts.dir || sessionsDir());
   /** @type {Map<string, { name: string, at: number }>} */
   const best = new Map();
 
-  let entries;
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return new Map(); // sessions dir missing -> no custom names
-  }
-
-  for (const e of entries) {
-    if (!e.isFile() || !e.name.endsWith('.json')) continue;
-    let raw;
-    try {
-      raw = fs.readFileSync(path.join(dir, e.name), 'utf8');
-    } catch {
-      continue;
-    }
-    let d;
-    try {
-      d = JSON.parse(raw);
-    } catch {
-      continue; // partial write / garbage — skip
-    }
-    if (!d || typeof d !== 'object') continue;
+  for (const d of records) {
     if (typeof d.sessionId !== 'string' || !d.sessionId) continue;
     if (d.nameSource !== 'user') continue; // derived/auto name, not a /rename
     if (typeof d.name !== 'string') continue;

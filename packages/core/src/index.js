@@ -15,7 +15,15 @@ export {
   Status,
   ACTIVE_WINDOW_MS,
 } from './metrics.js';
-export { launch, buildLaunch, findWindowsTerminal } from './launcher.js';
+export { launch, buildLaunch, findWindowsTerminal, launchEnv } from './launcher.js';
+export {
+  readSessionRecords,
+  liveSessionMap,
+  verifyLiveSessions,
+  isPidAlive,
+} from './liveSessions.js';
+export { focusSessionWindow } from './focus.js';
+export { openSession } from './open.js';
 export { readState, writeState, toggleFavorite, favoriteSet, statePath } from './state.js';
 export { deleteSession, restoreSession, listTrash, emptyTrash, trashDir } from './trash.js';
 export { generateChatter, parseChatter, resolveClaudeBin, CHATTER_LANGS } from './chatter.js';

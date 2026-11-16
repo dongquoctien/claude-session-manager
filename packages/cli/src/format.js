@@ -163,6 +163,19 @@ export function renderGrouped(sessions) {
   return lines.join('\n');
 }
 
+/**
+ * Marker for a conversation that is open in a running `claude` right now.
+ * @param {import('@csm/core').Session} s
+ * @returns {string} '' when not running
+ */
+export function liveTag(s) {
+  const live = s.live;
+  if (!live) return '';
+  if (live.status === 'busy') return c.green('● running');
+  if (live.status === 'waiting') return c.yellow('● needs input');
+  return c.green('○ open');
+}
+
 /** @param {import('@csm/core').Session} s */
 export function renderRow(s) {
   const id = c.dim(s.id.slice(0, 8));
@@ -171,5 +184,6 @@ export function renderRow(s) {
   const when = c.dim(timeAgo(s.mtime));
   const titleSrc =
     s.titleSource === 'aiTitle' ? '' : c.dim(` ·${s.titleSource}`);
-  return `  ${id}  ${star}${s.title}${titleSrc}\n            ${branch}  ${when}`;
+  const live = liveTag(s);
+  return `  ${id}  ${star}${s.title}${titleSrc}\n            ${branch}  ${when}${live ? `  ${live}` : ''}`;
 }

@@ -147,20 +147,43 @@ function asQuote(s) {
 }
 
 /**
- * Environment for the spawned terminal. The launched claude inherits whatever
- * env csm/agent run under; if that includes NO_COLOR (or the agent was started
- * with NO_COLOR=1), claude renders WITHOUT colors — flat/wrong vs a normal
- * launch (logo grey instead of orange, no status colors). We strip the
- * color-suppressing vars so claude does its own normal TTY color detection
- * inside Windows Terminal — exactly as if you ran it directly. We deliberately
- * do NOT force color on, to avoid emitting ANSI in a terminal that can't show
- * it; wt is a real TTY, so detection works.
+ * Variables a running Claude Code session sets for its own child processes.
+ * If csm itself runs inside a Claude session (e.g. `csm open` or `npm run web`
+ * started from Claude's shell), a resumed conversation would inherit them and
+ * run as that session's *child*: Claude Code then turns transcript saving off
+ * ("inherited CLAUDE_CODE_CHILD_SESSION marker") and never registers it in
+ * ~/.claude/sessions — and the parent's messaging token would leak along. Only
+ * these per-session markers are removed; user configuration such as
+ * CLAUDE_CODE_GIT_BASH_PATH or CLAUDE_CODE_USE_BEDROCK is kept.
+ * Windows Terminal hands the caller's environment to the new tab, so stripping
+ * them here is enough (verified).
+ */
+const PARENT_SESSION_VARS = [
+  'CLAUDECODE',
+  'CLAUDE_CODE_CHILD_SESSION',
+  'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_SESSION_ATTENDED',
+  'CLAUDE_CODE_MESSAGING_SOCKET',
+  'CLAUDE_CODE_MESSAGING_TOKEN',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'CLAUDE_CODE_EXECPATH',
+  'CLAUDE_PID',
+];
+
+/**
+ * Environment for the spawned terminal: the agent's env minus
+ *  - color suppressors: with NO_COLOR (or CLICOLOR=0) claude renders WITHOUT
+ *    colors — flat/wrong vs a normal launch. We deliberately do NOT force color
+ *    on; wt is a real TTY, so claude's own detection works;
+ *  - the parent-Claude-session markers ({@link PARENT_SESSION_VARS}).
+ * @param {NodeJS.ProcessEnv} [base]
  * @returns {NodeJS.ProcessEnv}
  */
-function colorEnv() {
-  const env = { ...process.env };
+export function launchEnv(base = process.env) {
+  const env = { ...base };
   delete env.NO_COLOR;
   delete env.CLICOLOR; // some tools treat CLICOLOR=0 as "no color"
+  for (const k of PARENT_SESSION_VARS) delete env[k];
   return env;
 }
 
@@ -184,7 +207,7 @@ export function launch(opts) {
     detached: true,
     stdio: 'ignore',
     windowsHide: false,
-    env: colorEnv(),
+    env: launchEnv(),
   });
   child.unref();
   return { terminal, cmd, args };

@@ -5,8 +5,9 @@ import { projectsDir, slugToLabel } from './paths.js';
 import { parseHead } from './parser.js';
 import { resolveTitle } from './title.js';
 import { sessionNameMap } from './sessionNames.js';
+import { readSessionRecords, liveSessionMap } from './liveSessions.js';
 import { favoriteSet } from './state.js';
-import { MetricsCache, resolveActivity, isActive, bucketTokenSeries } from './metrics.js';
+import { MetricsCache, resolveActivity, isActive, bucketTokenSeries, Activity } from './metrics.js';
 
 /**
  * @typedef {Object} Session
@@ -23,6 +24,8 @@ import { MetricsCache, resolveActivity, isActive, bucketTokenSeries } from './me
  * @property {string} file          absolute path to the .jsonl
  * @property {boolean} cwdExists     whether `cwd` still exists on disk (orphan check)
  * @property {boolean} favorite      whether the user pinned this conversation
+ * @property {import('./liveSessions.js').LiveInfo|null} live
+ *           set while a `claude` process has this conversation open
  */
 
 const DEFAULT_CONCURRENCY = 24;
@@ -63,11 +66,13 @@ export async function scanSessions(opts = {}) {
   const root = opts.dir || projectsDir();
   const concurrency = opts.concurrency || DEFAULT_CONCURRENCY;
 
-  // `/rename` names are read from each .jsonl (`custom-title`, by parseHead).
-  // Live processes also record a user-set name in ~/.claude/sessions, keyed by
-  // sessionId — a fallback for a rename the head/tail windows miss. Load the
-  // map once per scan.
-  const names = sessionNameMap(opts.sessionsDir ? { dir: opts.sessionsDir } : {});
+  // ~/.claude/sessions is Claude Code's registry of running processes. Read it
+  // once per scan for two things: which conversations are open right now
+  // (`live`), and a user-set `/rename` name — a fallback for a rename the
+  // .jsonl head/tail windows miss (the .jsonl `custom-title` comes first).
+  const records = readSessionRecords(opts.sessionsDir);
+  const names = sessionNameMap({ records });
+  const live = liveSessionMap({ records });
 
   let slugs;
   try {
@@ -138,6 +143,7 @@ export async function scanSessions(opts = {}) {
       file,
       cwdExists,
       favorite: favorites.has(id),
+      live: live.get(id) || null,
     };
   });
 
@@ -170,6 +176,21 @@ export async function scanSessions(opts = {}) {
 const sharedMetricsCache = new MetricsCache();
 
 /**
+ * Refine the transcript-derived activity with the live process status. The
+ * transcript says nothing during a long think or while a prompt waits on the
+ * user, so it reads as `idle`; the registry knows better.
+ * @param {string} activity  from {@link resolveActivity}
+ * @param {import('./liveSessions.js').LiveInfo|null} live
+ * @returns {string}
+ */
+function liveActivity(activity, live) {
+  if (!live || activity !== Activity.Idle) return activity;
+  if (live.status === 'waiting') return Activity.Waiting;
+  if (live.status === 'busy') return Activity.Thinking;
+  return activity;
+}
+
+/**
  * Like {@link scanSessions} but enriches every session with realtime metrics
  * (tokens, estimated cost, cache hit-rate, activity/status, modified files).
  * Uses an incremental byte-offset cache, so calling it on a tight loop only
@@ -177,13 +198,14 @@ const sharedMetricsCache = new MetricsCache();
  *
  * @param {Object} [opts]
  * @param {string} [opts.dir]          override projects dir (testing)
+ * @param {string} [opts.sessionsDir]  override the live-process registry dir (testing)
  * @param {number} [opts.concurrency]
  * @param {MetricsCache} [opts.cache]  override the shared metrics cache (testing)
  * @param {number} [opts.now]          epoch ms used to resolve activity (testing)
  * @returns {Promise<{ sessions: MonitorSession[], systemStats: SystemStats }>}
  */
 export async function scanMetrics(opts = {}) {
-  const base = await scanSessions({ dir: opts.dir, concurrency: opts.concurrency });
+  const base = await scanSessions({ dir: opts.dir, sessionsDir: opts.sessionsDir, concurrency: opts.concurrency });
   const cache = opts.cache || sharedMetricsCache;
   const now = opts.now || Date.now();
 
@@ -195,8 +217,11 @@ export async function scanMetrics(opts = {}) {
     const cacheDenom = m.tokens.cacheRead + m.tokens.input;
     return {
       ...s,
-      activity: resolveActivity(m, now),
-      active: isActive(m, now),
+      activity: liveActivity(resolveActivity(m, now), s.live),
+      // A running process is the real signal; the transcript-recency guess
+      // only covers sessions the registry doesn't list (it would otherwise call
+      // an open conversation that waits on you for >60s "Complete").
+      active: !!s.live || isActive(m, now),
       status: m.status,
       model: m.model,
       tokens: m.tokens,
@@ -374,10 +399,12 @@ export function searchSessions(sessions, query) {
  * @param {string} [opts.branch]       keep only sessions on this exact branch
  * @param {boolean} [opts.favoritesOnly] keep only favorited sessions
  * @param {boolean} [opts.hideOrphans] drop sessions whose cwd is gone
+ * @param {boolean} [opts.runningOnly] keep only sessions open in a running process
  * @returns {Session[]}
  */
 export function filterSessions(sessions, opts = {}) {
   let out = sessions;
+  if (opts.runningOnly) out = out.filter((s) => s.live);
   if (opts.favoritesOnly) out = out.filter((s) => s.favorite);
   if (opts.hideOrphans) out = out.filter((s) => s.cwdExists);
   if (opts.branch) out = out.filter((s) => s.branch === opts.branch);

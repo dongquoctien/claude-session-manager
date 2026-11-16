@@ -16,7 +16,8 @@ bundler — keep it that way; it runs directly on Node).
 
 ```
 packages/
-  core/     @csm/core  — scan/parse .jsonl, titles, launcher, favorites, trash
+  core/     @csm/core  — scan/parse .jsonl, titles, launcher, favorites, trash,
+                         live sessions + switch-to-window (open.js)
   cli/      @csm/cli   — `csm` bin (list/search/open/fav/rm/restore/trash)
   agent/    @csm/agent — zero-dep node:http server + static web UI host
   ui/       @csm/ui    — static HTML/JS/CSS (inline Lucide SVG icons)
@@ -55,7 +56,7 @@ npm run desktop:dist     # build Windows .exe installer
   `projectSlug` on open/delete) so the wrong file is never opened or trashed.
 - **`gitBranch` changes over a conversation's life** (user checks out other
   branches mid-session). Claude Code's `/resume` shows the LATEST branch, so we
-  read it from the file TAIL (`readTailBranch`), not the head — the head branch
+  read it from the file TAIL (`readTail`), not the head — the head branch
   is the oldest. Using the head made web disagree with `/resume`.
 - `aiTitle` may sit deep in the file; `lastPrompt` around line ~16. The parser
   streams the head, capped (`MAX_HEAD_LINES`), so 50MB+ files stay fast.
@@ -75,7 +76,24 @@ npm run desktop:dist     # build Windows .exe installer
   is a `/rename`. `sessionNames.js` keeps just those, keyed by the `sessionId`
   *inside* the file (PIDs recycle; latest `updatedAt` wins), as a fallback
   after the `.jsonl` title. Reading every `name` there was a bug: derived names
-  replaced real titles. Files exist only while the process runs.
+  replaced real titles.
+- **`~/.claude/sessions/` is the registry of RUNNING processes** → the source
+  of "open right now" (`liveSessions.js`). One `<pid>.json` per running
+  interactive `claude`: `sessionId`, `status` (`busy` | `idle` | `waiting`,
+  absent for the first second of startup), `waitingFor`, `statusUpdatedAt`,
+  `kind`, `entrypoint`. Removed on a normal exit, but **left behind when the
+  process is killed** (verified: `Stop-Process -Force`) — so liveness is
+  "file exists AND PID alive". `procStart` is the process creation time as a
+  Windows FILETIME, equal to the real creation time to the 100ns; it's the
+  PID-reuse guard (`verifyLiveSessions`: one PowerShell call per new process,
+  cached; FILETIMEs exceed 2^53 → compare as BigInt).
+- **A `claude` started from inside another Claude session is a "child
+  session"**: it inherits `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`,
+  `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_MESSAGING_*`, `CLAUDE_PID`…, and then
+  saves NO transcript and is NOT registered in `~/.claude/sessions`.
+  `launchEnv()` strips exactly those markers (never all `CLAUDE_CODE_*`: user
+  config like `CLAUDE_CODE_GIT_BASH_PATH` must survive). Windows Terminal hands
+  the caller's env to the new tab, so stripping at spawn is enough.
 - Honors `CLAUDE_CONFIG_DIR` (tests rely on this to use a temp dir).
 
 ## Launcher gotchas (hard-won — keep the fixes)
@@ -91,6 +109,42 @@ npm run desktop:dist     # build Windows .exe installer
 - `--dangerously-skip-permissions` is ON by default (CLI `--safe` opts out;
   web "skip perms" toggle).
 - Cross-platform: `terminal` can be `wt|powershell|macos|linux|auto`.
+- **Open = switch if already running** (`open.js`, shared by CLI + agent):
+  live → `focusSessionWindow`; not live / `gone` / `stale` → launch; `fork`
+  always launches (new id). If the window can't be raised (`no-window`,
+  non-Windows, error) it returns `running` and spawns NOTHING — never a second
+  `claude` on one transcript. Live state is read fresh at open time, not from
+  the 3s scan cache.
+
+## Switching to a running session (Windows, `core/focus.js`)
+
+Hard-won, verified on real windows — keep it:
+- **PID → window: `AttachConsole(pid)` + `GetConsoleWindow()`.** Under WT that
+  is a `PseudoConsoleWindow` whose `GA_ROOTOWNER` is the exact
+  `CASCADIA_HOSTING_WINDOW_CLASS` window. Do NOT use the parent PID's main
+  window: one `WindowsTerminal.exe` hosts many windows.
+- **Tab: title marker.** While attached, `SetConsoleTitle(<unique marker>)`,
+  find the WT tab with that name via UI Automation, `SelectionItemPattern
+  .Select()`, then restore the title. Exact even when tabs share a title
+  (fresh sessions are all "Claude Code"). Title matching is only a fallback.
+- **Foreground lock:** `SetForegroundWindow` → `AttachThreadInput` → Alt-tap,
+  then `FlashWindowEx` (`flashed`). Works from the background agent (web UI);
+  the desktop app's helper is a child of the foreground Electron process.
+- The script runs via `powershell.exe -EncodedCommand` (absolute
+  `%SystemRoot%` path, no temp file, no execution-policy issue); params are
+  embedded as base64 JSON so a title can't inject code. Nothing is written to
+  stdout while attached to the target console. ~0.7s per switch.
+- The PID comes from the registry, never from the client request.
+
+## Live list (`agent/src/live.js`, `/api/live`)
+
+Separate from `/api/stream` on purpose: the metrics stream re-scans every
+transcript (~7s CPU cold, ~200ms per push), the live feed only reads the tiny
+registry (~0.1ms). One hub per agent: fs.watch on `~/.claude/sessions` + 5s
+poll (catches killed processes, whose files don't change), push only on
+change, watch only while a client listens. The Sessions tab stays subscribed;
+it patches badges in place and refetches the list once when an unknown
+session id goes live.
 
 ## Delete = move-to-trash (never rm)
 
