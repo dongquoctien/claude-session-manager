@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findSession, searchSessions, filterSessions } from '../src/scanner.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { findSession, searchSessions, filterSessions, scanSessions } from '../src/scanner.js';
 
 const now = Date.now();
 const sessions = [
@@ -129,4 +132,63 @@ test('filterSessions: recentDays cutoff', () => {
 
 test('filterSessions: no opts is identity', () => {
   assert.equal(filterSessions(sessions, {}).length, 3);
+});
+
+// --- /rename titles, end to end ------------------------------------------
+// Mirrors the real bug: every live Claude Code process writes a `name` into
+// ~/.claude/sessions/<pid>.json, but most are auto-generated ("oh-api-07",
+// nameSource "derived"). Those replaced the user's real /rename title, which
+// lives in the .jsonl as a `custom-title` record.
+test('scanSessions: /rename title from the .jsonl beats a derived PID name', async (t) => {
+  const cfg = fs.mkdtempSync(path.join(os.tmpdir(), 'csm-scan-'));
+  const prevCfg = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = cfg; // keep favorites state out of ~/.claude
+  t.after(() => {
+    if (prevCfg === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = prevCfg;
+  });
+
+  const projects = path.join(cfg, 'projects');
+  const sessionsDir = path.join(cfg, 'sessions');
+  const folder = path.join(projects, 'D--Code-oh-api');
+  fs.mkdirSync(folder, { recursive: true });
+  fs.mkdirSync(sessionsDir);
+
+  const RENAMED = '4bc4d2f7-f023-4889-80fa-b4f89bb5766b'; // custom-title + derived PID name
+  const PLAIN = '88267676-daf7-45a9-aa94-2772b4d6b9f9'; // no rename, derived PID name
+  const LIVE = 'e2cbb068-1520-47a5-a8d2-a7f6831a08d9'; // user PID name, not in the .jsonl windows
+
+  /** @param {string} id @param {object[]} extra */
+  const writeJsonl = (id, extra) => fs.writeFileSync(
+    path.join(folder, `${id}.jsonl`),
+    [
+      { type: 'user', message: { content: 'hello' }, cwd: cfg, gitBranch: 'main' },
+      { type: 'ai-title', aiTitle: `AI title ${id.slice(0, 4)}`, sessionId: id },
+      ...extra,
+    ].map((o) => JSON.stringify(o)).join('\n'),
+  );
+  writeJsonl(RENAMED, [
+    { type: 'custom-title', customTitle: 'Allotment Increase Automation', sessionId: RENAMED },
+  ]);
+  writeJsonl(PLAIN, []);
+  writeJsonl(LIVE, []);
+
+  /** @param {number} pid @param {string} sessionId @param {string} name @param {string} nameSource */
+  const writePid = (pid, sessionId, name, nameSource) => fs.writeFileSync(
+    path.join(sessionsDir, `${pid}.json`),
+    JSON.stringify({ pid, sessionId, name, nameSource, updatedAt: Date.now() }),
+  );
+  writePid(43676, RENAMED, 'oh-api-07', 'derived');
+  writePid(20960, PLAIN, 'oh-api-08', 'derived');
+  writePid(33108, LIVE, 'VOC', 'user');
+
+  const found = await scanSessions({ dir: projects, sessionsDir });
+  const byId = Object.fromEntries(found.map((s) => [s.id, s]));
+
+  assert.equal(byId[RENAMED].title, 'Allotment Increase Automation');
+  assert.equal(byId[RENAMED].titleSource, 'customName');
+  assert.equal(byId[PLAIN].title, 'AI title 8826', 'derived name must not replace the AI title');
+  assert.equal(byId[PLAIN].titleSource, 'aiTitle');
+  assert.equal(byId[LIVE].title, 'VOC', 'a user-set PID name is still a fallback');
+  assert.equal(byId[LIVE].titleSource, 'customName');
 });

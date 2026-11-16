@@ -14,15 +14,16 @@ export function oneLine(s, max = 80) {
  * Resolve a human-readable title for a conversation using a 5-tier fallback,
  * since ~30% of conversations have no aiTitle.
  *
- *   1. customName    (user's own `/rename`, from ~/.claude/sessions — beats all)
+ *   1. customName    (user's own `/rename` — beats all)
  *   2. aiTitle       (AI-generated)
  *   3. lastPrompt    (most recent prompt, truncated)
  *   4. firstUserText (first human message, truncated)
  *   5. "Untitled · <date>"
  *
- * `customName` is passed in by the scanner (it lives outside the .jsonl, keyed
- * by sessionId — see {@link import('./sessionNames.js')}), so it's an explicit
- * argument rather than a field on `meta`.
+ * `customName` is passed in by the scanner: the .jsonl's latest `custom-title`
+ * (`meta.customTitle`), else a user-set name from a live process's file in
+ * ~/.claude/sessions (see {@link import('./sessionNames.js')}). It's an
+ * explicit argument because it merges two sources.
  *
  * @param {import('./parser.js').RawMeta} meta
  * @param {Date|number} mtime fallback date for the last tier

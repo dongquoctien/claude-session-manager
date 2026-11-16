@@ -10,9 +10,13 @@ function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'csm-sessions-'));
 }
 
-/** @param {string} dir @param {string} file @param {object} obj */
+/**
+ * Write a PID file. Defaults to `nameSource: "user"` (a real /rename); pass
+ * another `nameSource` to override.
+ * @param {string} dir @param {string} file @param {object} obj
+ */
 function writeSession(dir, file, obj) {
-  fs.writeFileSync(path.join(dir, file), JSON.stringify(obj));
+  fs.writeFileSync(path.join(dir, file), JSON.stringify({ nameSource: 'user', ...obj }));
 }
 
 test('missing sessions dir -> empty map', () => {
@@ -90,4 +94,34 @@ test('falls back to startedAt when updatedAt is absent', () => {
   writeSession(dir, 'a.json', { sessionId: 'dup', name: 'A', startedAt: 5000 });
   writeSession(dir, 'b.json', { sessionId: 'dup', name: 'B', startedAt: 9000 });
   assert.equal(sessionNameMap({ dir }).get('dup'), 'B');
+});
+
+// Every live process has a `name`; most are auto-generated from the folder
+// (`nameSource: "derived"`, e.g. "oh-api-08"). Only "user" is a /rename.
+test('derived (auto-generated) names are ignored', () => {
+  const dir = tmpDir();
+  writeSession(dir, '20960.json', {
+    pid: 20960,
+    sessionId: '88267676-daf7-45a9-aa94-2772b4d6b9f9',
+    name: 'oh-api-08',
+    nameSource: 'derived',
+    updatedAt: 1793677127923,
+  });
+  writeSession(dir, '33108.json', {
+    pid: 33108,
+    sessionId: 'e2cbb068-1520-47a5-a8d2-a7f6831a08d9',
+    name: 'VOC',
+    nameSource: 'user',
+    updatedAt: 1793676290910,
+  });
+  const map = sessionNameMap({ dir });
+  assert.equal(map.has('88267676-daf7-45a9-aa94-2772b4d6b9f9'), false);
+  assert.equal(map.get('e2cbb068-1520-47a5-a8d2-a7f6831a08d9'), 'VOC');
+  assert.equal(map.size, 1);
+});
+
+test('a name with no nameSource is skipped (unknown origin)', () => {
+  const dir = tmpDir();
+  fs.writeFileSync(path.join(dir, '1.json'), JSON.stringify({ sessionId: 'x', name: 'Mystery' }));
+  assert.equal(sessionNameMap({ dir }).size, 0);
 });

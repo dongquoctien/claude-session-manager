@@ -62,15 +62,20 @@ npm run desktop:dist     # build Windows .exe installer
 - ~30% of conversations have no `aiTitle` → 5-tier title fallback
   (`customName → aiTitle → lastPrompt → first user msg → "Untitled · date"`);
   harness wrappers (`<local-command-stdout>`, `<command-name>`, …) are filtered.
-- **`/rename` does NOT touch the `.jsonl`.** Claude Code's `/rename` writes the
-  new name to a per-process file `~/.claude/sessions/<pid>.json` (the `name`
-  field), keyed by **PID**, with the real `sessionId` *inside* the file — NOT to
-  `aiTitle`. So a renamed conversation still shows its old AI title unless we
-  read that dir. `sessionNames.js` builds a `sessionId → name` map (latest
-  `updatedAt`/`startedAt` wins, since PIDs get recycled and stale files linger),
-  and the scanner feeds it as the top `customName` title tier. Best-effort,
-  live-process metadata: an old session whose PID file was overwritten just has
-  no name there and falls through to `aiTitle`.
+- **`/rename` writes `{"type":"custom-title","customTitle":…}` into the
+  `.jsonl`** (plus an `agent-name` record, which also mirrors AI titles — don't
+  use it). Renaming again appends a new record, so the **latest** wins, and
+  Claude Code keeps re-appending the current one near EOF (measured ≤ ~33KB
+  from the end), while the first one can be 88k+ lines in. So the parser reads
+  it from the **tail** (same pass as `gitBranch`), head as fallback. It's the
+  top `customName` title tier.
+- **`~/.claude/sessions/<pid>.json` `name` is mostly NOT a rename.** Every live
+  process gets a `name`; `nameSource: "derived"` is auto-generated from the
+  folder (`oh-api-08`, `claude-session-manager-10`). Only `nameSource: "user"`
+  is a `/rename`. `sessionNames.js` keeps just those, keyed by the `sessionId`
+  *inside* the file (PIDs recycle; latest `updatedAt` wins), as a fallback
+  after the `.jsonl` title. Reading every `name` there was a bug: derived names
+  replaced real titles. Files exist only while the process runs.
 - Honors `CLAUDE_CONFIG_DIR` (tests rely on this to use a temp dir).
 
 ## Launcher gotchas (hard-won — keep the fixes)

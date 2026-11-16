@@ -8,51 +8,78 @@ import readline from 'node:readline';
  */
 const MAX_HEAD_LINES = 250;
 
-/** Bytes to read from the tail when looking for the most recent gitBranch. */
+/**
+ * Bytes to read from the tail when looking for the most recent gitBranch and
+ * `/rename` title. Measured on real data: Claude Code re-appends the
+ * `custom-title` record every few turns, and the last one sat at most ~33KB
+ * from EOF (26 renamed sessions, files up to 600MB), so 96KB has headroom.
+ */
 const TAIL_BYTES = 96 * 1024;
 
 /**
- * The git branch a conversation is "on" can change over its life (the user
- * checks out other branches mid-session). Claude Code's own /resume picker
- * shows the LATEST branch, but that record can be thousands of lines in — far
- * past the head scan. So read just the tail of the file and return the last
- * gitBranch seen there. Returns null if none found in the tail.
+ * The user's `/rename` title, from a `{"type":"custom-title","customTitle":…}`
+ * record. Returns `undefined` when the line is not such a record, `null` when
+ * it is but the title is blank (treated as "name cleared").
+ * @param {*} d parsed .jsonl line
+ * @returns {string|null|undefined}
+ */
+function customTitleOf(d) {
+  if (!d || d.type !== 'custom-title' || typeof d.customTitle !== 'string') return undefined;
+  return d.customTitle.trim() || null;
+}
+
+/**
+ * Two things a conversation can change over its life, whose LATEST value
+ * Claude Code's own /resume picker shows, and whose records can sit thousands
+ * of lines in — far past the head scan:
+ *  - the git branch (the user checks out other branches mid-session);
+ *  - the `/rename` title (`custom-title` records; renaming again appends a new
+ *    one, and Claude Code keeps re-appending the current one near the end).
+ * So read just the tail of the file and return the last value of each seen
+ * there. `branch` is null and `customTitle` is undefined when the tail has none.
  * @param {string} filePath
  * @param {number} fileSize
- * @returns {Promise<string|null>}
+ * @returns {Promise<{ branch: string|null, customTitle: string|null|undefined }>}
  */
-function readTailBranch(filePath, fileSize) {
+function readTail(filePath, fileSize) {
   return new Promise((resolve) => {
-    if (fileSize <= 0) return resolve(null);
+    /** @type {{ branch: string|null, customTitle: string|null|undefined }} */
+    const found = { branch: null, customTitle: undefined };
+    if (fileSize <= 0) return resolve(found);
     const start = Math.max(0, fileSize - TAIL_BYTES);
     let buf = '';
     let stream;
     try {
       stream = fs.createReadStream(filePath, { encoding: 'utf8', start });
     } catch {
-      return resolve(null);
+      return resolve(found);
     }
     stream.on('data', (chunk) => { buf += chunk; });
-    stream.on('error', () => resolve(null));
+    stream.on('error', () => resolve(found));
     stream.on('end', () => {
-      let branch = null;
       // Scan complete lines; the first chunk may start mid-line, that's fine —
       // JSON.parse just fails on it and we skip. Walk lines in order so the
-      // last valid gitBranch wins (most recent).
+      // last valid value of each wins (most recent).
       for (const line of buf.split('\n')) {
-        if (!line || line.indexOf('gitBranch') === -1) continue;
+        if (!line) continue;
+        const hasBranch = line.indexOf('gitBranch') !== -1;
+        const hasTitle = line.indexOf('"custom-title"') !== -1;
+        if (!hasBranch && !hasTitle) continue;
         try {
           const d = JSON.parse(line);
-          if (d && typeof d.gitBranch === 'string' && d.gitBranch) branch = d.gitBranch;
+          if (d && typeof d.gitBranch === 'string' && d.gitBranch) found.branch = d.gitBranch;
+          const t = customTitleOf(d);
+          if (t !== undefined) found.customTitle = t;
         } catch { /* partial/garbage line — skip */ }
       }
-      resolve(branch);
+      resolve(found);
     });
   });
 }
 
 /**
  * @typedef {Object} RawMeta
+ * @property {string|null} customTitle    the user's latest `/rename` title
  * @property {string|null} aiTitle
  * @property {string|null} cwd
  * @property {string|null} gitBranch
@@ -74,6 +101,7 @@ export function parseHead(filePath) {
   return new Promise((resolve) => {
     /** @type {RawMeta} */
     const meta = {
+      customTitle: null,
       aiTitle: null,
       cwd: null,
       gitBranch: null,
@@ -105,12 +133,13 @@ export function parseHead(filePath) {
       done = true;
       rl.close();
       stream.destroy();
-      // The branch from the head is the OLDEST one; the conversation may have
-      // switched branches later. Prefer the latest branch from the tail so we
-      // match Claude Code's /resume picker. Only the tail read is extra work,
-      // and only when the file is bigger than the head we already scanned.
-      readTailBranch(filePath, fileSize).then((tailBranch) => {
-        if (tailBranch) meta.gitBranch = tailBranch;
+      // The branch and /rename title from the head are the OLDEST ones; the
+      // conversation may have switched branches or been renamed later. Prefer
+      // the latest values from the tail so we match Claude Code's /resume
+      // picker. The head value stays as a fallback when the tail has none.
+      readTail(filePath, fileSize).then((tail) => {
+        if (tail.branch) meta.gitBranch = tail.branch;
+        if (tail.customTitle !== undefined) meta.customTitle = tail.customTitle;
         resolve(meta);
       });
     };
@@ -132,7 +161,13 @@ export function parseHead(filePath) {
       }
       if (!d || typeof d !== 'object') return;
 
-      // aiTitle is the strongest signal; capture the first one seen.
+      // /rename title: keep the LATEST one seen (renaming appends a new record).
+      // The tail read overrides this; the head copy covers a rename made at
+      // startup in a file whose tail has none.
+      const ct = customTitleOf(d);
+      if (ct !== undefined) meta.customTitle = ct;
+
+      // aiTitle (AI-generated name): capture the first one seen.
       if (meta.aiTitle == null && typeof d.aiTitle === 'string') {
         meta.aiTitle = d.aiTitle.trim() || null;
       }

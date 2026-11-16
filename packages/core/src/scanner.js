@@ -63,8 +63,10 @@ export async function scanSessions(opts = {}) {
   const root = opts.dir || projectsDir();
   const concurrency = opts.concurrency || DEFAULT_CONCURRENCY;
 
-  // Custom names set via Claude Code's `/rename` live outside the .jsonl, in
-  // ~/.claude/sessions, keyed by sessionId. Load the map once per scan.
+  // `/rename` names are read from each .jsonl (`custom-title`, by parseHead).
+  // Live processes also record a user-set name in ~/.claude/sessions, keyed by
+  // sessionId — a fallback for a rename the head/tail windows miss. Load the
+  // map once per scan.
   const names = sessionNameMap(opts.sessionsDir ? { dir: opts.sessionsDir } : {});
 
   let slugs;
@@ -108,7 +110,8 @@ export async function scanSessions(opts = {}) {
     const meta = await parseHead(file);
     const mtime = stat.mtimeMs;
     const id = path.basename(file, '.jsonl');
-    const { title, source } = resolveTitle(meta, mtime, names.get(id) || null);
+    const customName = meta.customTitle || names.get(id) || null;
+    const { title, source } = resolveTitle(meta, mtime, customName);
 
     let cwdExists = false;
     if (meta.cwd) {
