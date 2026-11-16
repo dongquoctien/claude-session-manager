@@ -10,8 +10,7 @@ import {
   searchSessions,
   filterSessions,
   findSession,
-  launch,
-  buildLaunch,
+  openSession,
   toggleFavorite,
   deleteSession,
   restoreSession,
@@ -20,6 +19,7 @@ import {
   resolveClaudeBin,
 } from '@csm/core';
 import { publicDir } from '@csm/ui/dir';
+import { createLiveHub } from './live.js';
 
 const HOST = '127.0.0.1';
 const DEFAULT_PORT = 4777;
@@ -42,16 +42,20 @@ const MIME = {
  *  - per-run random token required on every /api request (header or ?token)
  *  - Host header allowlist defeats DNS-rebinding
  *  - /api/open only accepts a sessionId that exists in the current scan;
- *    it never takes a path or command from the client
+ *    it never takes a path or command from the client. When the conversation
+ *    is already running, the PID to bring forward comes from Claude Code's
+ *    own process registry, never from the request
  *
  * @param {Object} [opts]
  * @param {string} [opts.token]  override token (testing)
  * @param {number} [opts.cacheMs] how long a scan is reused (default 3000)
+ * @param {Parameters<typeof createLiveHub>[0]} [opts.live]  live hub options (testing)
  * @returns {{ server: http.Server, token: string }}
  */
 export function createServer(opts = {}) {
   const token = opts.token || crypto.randomBytes(24).toString('base64url');
   const cacheMs = opts.cacheMs ?? 3000;
+  const liveHub = createLiveHub(opts.live);
 
   /** @type {{ at: number, data: import('@csm/core').Session[] }|null} */
   let cache = null;
@@ -106,6 +110,10 @@ export function createServer(opts = {}) {
         return handleStream(req, res);
       }
 
+      if (req.method === 'GET' && url.pathname === '/api/live') {
+        return handleLive(req, res, liveHub);
+      }
+
       if (req.method === 'GET' && url.pathname === '/api/monitor') {
         // One-shot metrics snapshot (polling fallback for the SSE stream).
         const data = await scanMetrics();
@@ -147,6 +155,7 @@ export function createServer(opts = {}) {
         const branches = [...new Set(all.map((s) => s.branch).filter(Boolean))].sort();
         let sessions = q.trim() ? searchSessions(all, q) : all;
         sessions = filterSessions(sessions, {
+          runningOnly: url.searchParams.get('running') === '1',
           favoritesOnly: url.searchParams.get('fav') === '1',
           hideOrphans: url.searchParams.get('orphans') === '0',
           branch: url.searchParams.get('branch') || undefined,
@@ -299,31 +308,64 @@ async function handleOpen(res, body, getSessions) {
   }
   if (!match.cwd) return send(res, 422, { error: 'session has no cwd' });
 
-  const launchOpts = {
-    cwd: match.cwd,
-    sessionId: match.id,
+  // Already running → switch to its window instead of a second `claude
+  // --resume` on the same transcript; otherwise resume in a new terminal.
+  // openSession reads the live registry fresh (the scan above may be cached).
+  const r = await openSession(match, {
     fork: !!(body && body.fork),
     // Default ON (friction-free resume); the UI sends false to opt out.
     skipPermissions: body && body.skipPermissions !== undefined
       ? !!body.skipPermissions
       : true,
     terminal: (body && body.terminal) || 'auto',
-  };
+    dryRun: !!(body && body.dryRun),
+  });
 
-  if (body && body.dryRun) {
-    const { cmd, args, terminal } = buildLaunch(launchOpts);
-    return send(res, 200, { dryRun: true, terminal, cmd, args, cwdExists: match.cwdExists });
-  }
-
-  const { terminal } = launch(launchOpts);
-  return send(res, 200, {
-    ok: true,
-    terminal,
+  const common = {
+    action: r.action,
     id: match.id,
     title: match.title,
     cwd: match.cwd,
     cwdExists: match.cwdExists,
+    pid: r.live ? r.live.pid : null,
+    live: r.live || null,
+  };
+  if (r.dryRun) {
+    return send(res, 200, { dryRun: true, ...common, terminal: r.terminal, cmd: r.cmd, args: r.args });
+  }
+  return send(res, 200, { ok: true, ...common, terminal: r.terminal || null, focus: r.focus || null });
+}
+
+/**
+ * Server-Sent Events feed of the open conversations (`event: live`, data
+ * `{ sessions: { [sessionId]: LiveInfo }, at }`). Cheap — see createLiveHub —
+ * so the Sessions list can stay subscribed the whole time the UI is open.
+ * The token is validated by the gate before we get here.
+ */
+function handleLive(req, res, hub) {
+  res.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-store',
+    connection: 'keep-alive',
+    'x-accel-buffering': 'no',
   });
+  res.write('retry: 3000\n\n');
+
+  let closed = false;
+  const unsubscribe = hub.subscribe((sessions) => {
+    if (!closed) res.write(`event: live\ndata: ${JSON.stringify({ sessions, at: Date.now() })}\n\n`);
+  });
+  const heartbeat = setInterval(() => { if (!closed) res.write(': ping\n\n'); }, 15000);
+
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(heartbeat);
+    unsubscribe();
+  };
+  req.on('close', cleanup);
+  req.on('error', cleanup);
+  res.on('error', cleanup);
 }
 
 /**

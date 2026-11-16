@@ -71,6 +71,14 @@ let viewMode = (() => {
 })();
 let lastSessions = []; // last fetched list, so a layout switch re-renders without a refetch
 
+// Open conversations, pushed by /api/live (Claude Code's process registry):
+// sessionId -> { pid, status: busy|waiting|idle|unknown, waitingFor, since, ... }.
+// null until the first event; until then each session's own `live` is used.
+let liveMap = null;
+const liveRefetched = new Set(); // live ids we already refetched the list for
+let liveRefetchTimer;
+const opening = new Set();       // session ids with an open request in flight
+
 // Multi-select for bulk delete. Keyed by id|projectSlug so two recordings of
 // the same UUID (worktree duplicates) are tracked separately.
 const selected = new Map(); // selKey -> session
@@ -90,6 +98,7 @@ const $selCount = document.getElementById('selection-count');
 const $selClear = document.getElementById('selection-clear');
 const $selDelete = document.getElementById('selection-delete');
 const $selToggle = document.getElementById('select-toggle');
+const $runningCount = document.getElementById('running-count');
 let selectMode = false; // checkboxes only render/show when this is on
 
 // --- custom dropdown (replaces native <select> for a themed option list) ---
@@ -291,6 +300,128 @@ function missingBadge() {
   return badge;
 }
 
+// --- live (open in a terminal right now) ----------------------------------
+
+const LIVE_LABELS = { busy: 'Running', waiting: 'Needs input', idle: 'Idle', unknown: 'Open' };
+
+/** Live info for a session, or null when no process has it open. */
+function liveOf(s) {
+  if (liveMap) return liveMap[s.id] || null;
+  return s.live || null;
+}
+
+function liveTooltip(live) {
+  const what = {
+    busy: 'working',
+    waiting: live.waitingFor ? `waiting for ${live.waitingFor}` : 'waiting for your input',
+    idle: 'idle, waiting for a prompt',
+  }[live.status];
+  const parts = [`Open in a terminal (pid ${live.pid})`];
+  if (what) parts.push(what + (live.since ? ` for ${timeAgo(live.since).replace(/ ago$/, '')}` : ''));
+  return parts.join(' · ');
+}
+
+/**
+ * Point a row's primary action at the right thing: "Switch to" brings a
+ * running conversation's terminal forward; "Open" resumes it in a new one.
+ * Fork always opens (it creates a new session id).
+ */
+function setRowAction(row, switching) {
+  const open = row.querySelector('.row-open');
+  const mode = switching ? 'switch' : 'open';
+  if (!open || open.dataset.mode === mode) return;
+  open.dataset.mode = mode;
+  open.replaceChildren(el('span', null, switching ? 'Switch to' : 'Open'), icon(switching ? 'app-window' : 'play'));
+  open.title = switching ? 'Already open — bring its terminal to the front' : 'Resume in a new terminal';
+}
+
+/** Sync one row's live badge, action label and "x ago" with the live map. */
+function updateRowLive(row, s) {
+  const live = liveOf(s);
+  row.classList.toggle('is-live', !!live);
+  setRowAction(row, !!live && !$fork.checked);
+  const when = row.querySelector('.row-meta .when');
+  if (when) when.textContent = timeAgo(Math.max(s.mtime, (live && live.since) || 0));
+
+  let badge = row.querySelector('.live-badge');
+  if (!live) { if (badge) badge.remove(); return; }
+  if (!badge) {
+    badge = el('span', 'live-badge');
+    badge.appendChild(el('span', 'live-dot'));
+    badge.appendChild(el('span', 'live-text'));
+    row.querySelector('.row-meta').prepend(badge);
+  }
+  const state = LIVE_LABELS[live.status] ? live.status : 'unknown';
+  badge.className = `live-badge ${state}`;
+  badge.querySelector('.live-text').textContent = LIVE_LABELS[state];
+  badge.title = liveTooltip(live);
+}
+
+function applyLive() {
+  for (const r of allRows) updateRowLive(r.node, r.session);
+}
+
+function updateRunningChip() {
+  const n = liveMap ? Object.keys(liveMap).length : lastSessions.filter((s) => s.live).length;
+  $runningCount.textContent = String(n);
+  $runningCount.hidden = n === 0;
+}
+
+function onLive(map) {
+  const prevIds = liveMap ? Object.keys(liveMap).join('|') : null; // keys arrive sorted
+  liveMap = map;
+  updateRunningChip();
+  // Under the Running filter, rows appear/disappear when the set changes;
+  // otherwise only badges change, patched in place (keeps hover/keyboard focus).
+  if (activeFilter === 'running' && Object.keys(map).join('|') !== prevIds) render(lastSessions);
+  else applyLive();
+
+  // A conversation that just started isn't in the list yet: refetch once.
+  const known = new Set(lastSessions.map((s) => s.id));
+  const fresh = Object.keys(map).filter((id) => !known.has(id) && !liveRefetched.has(id));
+  if (fresh.length) {
+    for (const id of fresh) liveRefetched.add(id);
+    clearTimeout(liveRefetchTimer);
+    liveRefetchTimer = setTimeout(() => { if (selected.size === 0) refresh(); }, 800);
+  }
+}
+
+// The header pill shows the connection of the feed behind the current tab:
+// Sessions -> /api/live, Monitor/Office -> the metrics stream.
+const feedState = { live: 'connecting', stream: 'offline' };
+const FEED_TITLES = {
+  live: 'Live status of open conversations',
+  stream: 'Realtime metrics connection',
+};
+let pillFeed = 'live';
+function paintPill() {
+  const pill = document.getElementById('live-pill');
+  const state = feedState[pillFeed];
+  pill.className = 'live-pill ' + state; // connected | connecting | offline
+  pill.title = FEED_TITLES[pillFeed];
+  document.getElementById('live-text').textContent = state;
+}
+function setFeedState(feed, state) {
+  feedState[feed] = state;
+  if (feed === pillFeed) paintPill();
+}
+function showFeedInPill(feed) {
+  pillFeed = feed;
+  paintPill();
+}
+
+function connectLive() {
+  // EventSource reconnects on its own after a drop.
+  const es = new EventSource(`/api/live?token=${encodeURIComponent(TOKEN)}`);
+  es.addEventListener('live', (e) => {
+    setFeedState('live', 'connected');
+    try { onLive(JSON.parse(e.data).sessions || {}); } catch (err) { /* bad frame: wait for the next */ }
+  });
+  es.addEventListener('error', () => {
+    setFeedState('live', es.readyState === EventSource.CLOSED ? 'offline' : 'connecting');
+  });
+}
+
 /**
  * Build one session row and register it in `allRows` (keyboard nav and
  * shift-click ranges use that flat order).
@@ -365,10 +496,8 @@ function buildRow(s, { showFolder, syncGroupCheck }) {
   }
   row.appendChild(main);
 
-  const open = el('span', 'row-open');
-  open.appendChild(el('span', null, 'Open'));
-  open.appendChild(icon('play'));
-  row.appendChild(open);
+  // Label/icon set by updateRowLive: "Open" or, when running, "Switch to".
+  row.appendChild(el('span', 'row-open'));
 
   // Trash button — last, separated from Open by a divider so it's not
   // mistaken for the primary action.
@@ -387,17 +516,25 @@ function buildRow(s, { showFolder, syncGroupCheck }) {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doOpen(s); }
   });
   allRows.push({ node: row, session: s, checkbox: check, syncGroupCheck });
+  updateRowLive(row, s);
   return { row, check };
 }
 
-function render(sessions) {
-  lastSessions = sessions;
+function render(fetched) {
+  lastSessions = fetched;
   $list.innerHTML = '';
   allRows = [];
   activeIndex = -1;
+  updateRunningChip();
+
+  // The Running filter is applied here, not by the server, because the live
+  // set changes between fetches.
+  const sessions = activeFilter === 'running' ? fetched.filter((s) => liveOf(s)) : fetched;
 
   if (sessions.length === 0) {
-    $list.appendChild(el('div', 'empty', 'No conversations found.'));
+    $list.appendChild(el('div', 'empty', activeFilter === 'running'
+      ? 'No conversation is open in a terminal right now.'
+      : 'No conversations found.'));
     return;
   }
 
@@ -483,8 +620,26 @@ function toast(msg, kind = 'ok', action = null) {
   }, action ? 6000 : 3500);
 }
 
+/** Toast text when a conversation is already open but can't be brought up. */
+function alreadyOpenMessage(name, r) {
+  const pid = r.pid ? ` (pid ${r.pid})` : '';
+  const f = r.focus || {};
+  if (f.result === 'unsupported') {
+    return `${name} is already open${pid}. Switching to its window works on Windows only — use that terminal, or tick Fork to open a copy.`;
+  }
+  if (f.result === 'no-window') {
+    return `${name} is already open${pid}, but not in a terminal window csm can bring up (e.g. an IDE). Use that window, or tick Fork to open a copy.`;
+  }
+  return `${name} is already open${pid}, but its window couldn't be brought up${f.error ? ` (${f.error})` : ''}. Tick Fork to open a copy.`;
+}
+
 async function doOpen(s) {
-  if (!s.cwdExists) {
+  // One request per conversation at a time: a double-click must never start
+  // two terminals on the same transcript.
+  if (opening.has(s.id)) return;
+  opening.add(s.id);
+  const switching = !!liveOf(s) && !$fork.checked;
+  if (!s.cwdExists && !switching) {
     toast(`Folder missing — Claude may fail to resume:\n${s.cwd}`, 'warn');
   }
   try {
@@ -493,9 +648,15 @@ async function doOpen(s) {
       skipPermissions: $skipperms.checked,
       slug: s.projectSlug,
     });
-    toast(`Opening “${r.title || s.title}” via ${r.terminal}`, 'ok');
+    const name = `“${r.title || s.title}”`;
+    if (r.action === 'focused') toast(`Switched to ${name} — it was already open`, 'ok');
+    else if (r.action === 'flashed') toast(`${name} is already open. Windows kept the focus here, so its taskbar button is flashing.`, 'warn');
+    else if (r.action === 'running') toast(alreadyOpenMessage(name, r), 'warn');
+    else toast(`Opening ${name} via ${r.terminal}`, 'ok');
   } catch (err) {
     toast(`Failed to open: ${err.message}`, 'err');
+  } finally {
+    opening.delete(s.id);
   }
 }
 
@@ -714,6 +875,8 @@ for (const chip of $chips) {
 }
 $branchFilter.onChange(refresh);
 $hideOrphans.addEventListener('change', refresh);
+// Fork always opens a new terminal, so "Switch to" labels flip back to "Open".
+$fork.addEventListener('change', applyLive);
 
 // The filterbar wraps to two lines on narrow windows; publish its real height
 // so the sticky folder headers and selection bar stay just below it.
@@ -809,8 +972,6 @@ const Monitor = (() => {
   const $activity = document.getElementById('mon-activity');
   const $files = document.getElementById('mon-files');
   const $filesTitle = document.getElementById('mon-files-title');
-  const $livePill = document.getElementById('live-pill');
-  const $liveText = document.getElementById('live-text');
   const $modelChart = document.getElementById('mon-model-chart');
   const $modelLegend = document.getElementById('mon-model-legend');
 
@@ -836,8 +997,7 @@ const Monitor = (() => {
   $modelDD.onChange((v) => { filterModel = v; renderSidebar(); });
 
   function setLive(state) {
-    $livePill.className = 'live-pill ' + state; // connected | connecting | offline
-    $liveText.textContent = state;
+    setFeedState('stream', state); // connected | connecting | offline
   }
 
   /** Rebuild the model dropdown when the set of models in `latest` changes,
@@ -3379,6 +3539,7 @@ const $views = {
 function switchTab(name) {
   for (const t of $tabs) t.setAttribute('aria-selected', String(t.dataset.tab === name));
   for (const [k, v] of Object.entries($views)) v.hidden = k !== name;
+  showFeedInPill(name === 'sessions' ? 'live' : 'stream');
   // Office shares the Monitor SSE stream, so opening either starts it.
   if (name === 'monitor' || name === 'office') Monitor.start();
   if (name === 'office') Office.start();
@@ -3390,6 +3551,8 @@ for (const t of $tabs) t.addEventListener('click', () => switchTab(t.dataset.tab
 // --- boot -----------------------------------------------------------------
 
 refresh();
+connectLive(); // cheap registry feed (not the metrics stream) — stays on
+paintPill();
 // Light auto-refresh so new conversations show up without a manual reload.
 // Only the Sessions view polls (Monitor is SSE-driven), and we skip while a
 // selection is in progress so we don't wipe the user's checkboxes.

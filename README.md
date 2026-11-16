@@ -105,6 +105,14 @@ It serves a searchable, folder-grouped list at `http://127.0.0.1:<port>/`.
 Type to filter, click a row (or press Enter) to open that conversation in a
 new terminal. Tick **fork** to resume as a new forked session.
 
+The list is **live**: a conversation that is open in a terminal right now
+shows a badge — **Running** (working), **Needs input** (waiting on you) or
+**Idle** — and the **Running** chip filters to just those. Clicking one that is
+already open **switches to its window** (and, in Windows Terminal, to the
+exact tab) instead of starting a second `claude` on the same transcript. Fork
+still opens a new terminal. Switching windows is Windows-only; elsewhere csm
+says it's already open and starts nothing.
+
 **Security:** the agent binds `127.0.0.1` only, requires a per-run token
 (embedded in the URL it prints/opens), rejects foreign `Host` headers
 (anti DNS-rebind), and `POST /api/open` only accepts a sessionId already
@@ -162,10 +170,11 @@ csm list news-tok        # filter by a query (title / folder / branch / id)
 csm list --fav           # only pinned conversations
 csm list --recent 3      # only those touched in the last 3 days
 csm list --branch main   # only on a given git branch
+csm list --running       # only those open in a terminal right now
 csm search dashboard     # same as `list <query>`
 csm monitor              # live dashboard: tokens, cost, cache, activity (Ctrl+C quits)
 csm monitor --active     # only sessions active right now
-csm open <id|prefix>     # open a terminal and resume that conversation
+csm open <id|prefix>     # resume in a new terminal, or switch to it if already open
 csm fav <id|prefix>      # pin / unpin a conversation
 csm rm <id|prefix>       # move to trash (preview; add --yes to confirm)
 csm restore <id|prefix>  # restore a trashed conversation
@@ -187,11 +196,12 @@ Useful flags:
 | `--interval <ms>` | monitor | refresh interval, min 250 (default 2000) |
 | `--limit <n>` | list/search | cap number of rows |
 | `--fav` | list | only favorites |
+| `--running` | list | only conversations open in a terminal right now |
 | `--recent [days]` | list | only the last N days (default 7) |
 | `--branch <name>` | list | only this git branch |
 | `--hide-missing` | list | hide conversations whose folder is gone |
 | `--dry-run` | open | print the launch command, don't run it |
-| `--fork` | open | resume with `--fork-session` (new id, keeps history) |
+| `--fork` | open | resume with `--fork-session` (new id, keeps history); always a new terminal |
 | `--safe` | open | keep permission prompts (skip is on by default) |
 | `--terminal <wt\|powershell>` | open | force a terminal (default: auto) |
 | `--folder <slug-substr>` | open/fav/rm | pick a copy by folder when one id exists in two folders (worktree duplicates) |
@@ -204,7 +214,8 @@ and the web UI.
 ## How titles are resolved
 
 About 30% of conversations have no AI-generated title, so `csm` falls back in
-order: **aiTitle → last prompt → first user message → "Untitled · <date>"**.
+order: **your `/rename` name → aiTitle → last prompt → first user message →
+"Untitled · <date>"**.
 Harness-injected text (command wrappers, system reminders) is ignored so it
 never becomes a title.
 
@@ -218,6 +229,15 @@ never becomes a title.
 - Reads the real `cwd` and `gitBranch` recorded inside each conversation, so it
   opens the exact folder/worktree (it does **not** guess from the folder name).
 - Conversations whose folder no longer exists are flagged as `(missing)`.
+- "Open right now" comes from Claude Code's own registry of running processes
+  (`~/.claude/sessions/<pid>.json`), checked against the live process list.
+  The web UI follows it over a small dedicated feed (`/api/live`), separate
+  from the heavier Monitor stream, so keeping the list live costs next to
+  nothing.
+- Switching to a running conversation (Windows) finds the terminal window
+  that owns that process's console, picks the tab, restores and focuses it —
+  a short built-in PowerShell script, nothing to install. If Windows refuses
+  to hand over focus, the window's taskbar button flashes instead.
 
 ## License
 

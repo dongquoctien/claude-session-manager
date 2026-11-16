@@ -52,6 +52,13 @@
       <g id="i-play" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polygon points="6 3 20 12 6 21 6 3"/>
       </g>
+      <!-- Lucide "app-window": switch to the terminal a running session is in. -->
+      <g id="i-app-window" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="4" width="20" height="16" rx="2"/>
+        <path d="M10 4v4"/>
+        <path d="M2 8h20"/>
+        <path d="M6 4v4"/>
+      </g>
       <g id="i-alert" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
         <path d="M12 9v4"/>
@@ -161,6 +168,13 @@
         <svg class="icon" viewBox="0 0 24 24"><use href="#i-star"/></svg> Favorites
       </button>
       <button class="chip" data-filter="recent">Last 7 days</button>
+      <!-- Conversations open in a running `claude` right now (live, from
+           Claude Code's process registry via /api/live). -->
+      <button class="chip chip-running" data-filter="running"
+              title="Conversations open in a terminal right now">
+        <span class="live-dot" aria-hidden="true"></span> Running
+        <span class="chip-count" id="running-count" hidden>0</span>
+      </button>
       <div id="branch-dd" class="dropdown">
         <button type="button" class="chip dropdown-trigger" id="branch-dd-trigger"
                 aria-haspopup="listbox" aria-expanded="false">

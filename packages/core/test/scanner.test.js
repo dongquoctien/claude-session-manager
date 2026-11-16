@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { findSession, searchSessions, filterSessions, scanSessions } from '../src/scanner.js';
+import { findSession, searchSessions, filterSessions, scanSessions, scanMetrics } from '../src/scanner.js';
+import { MetricsCache } from '../src/metrics.js';
 
 const now = Date.now();
 const sessions = [
@@ -191,4 +192,52 @@ test('scanSessions: /rename title from the .jsonl beats a derived PID name', asy
   assert.equal(byId[PLAIN].titleSource, 'aiTitle');
   assert.equal(byId[LIVE].title, 'VOC', 'a user-set PID name is still a fallback');
   assert.equal(byId[LIVE].titleSource, 'customName');
+});
+
+// --- live: open in a running process ----------------------------------------
+// ~/.claude/sessions/<pid>.json is Claude Code's registry of running processes.
+// A conversation whose process is alive gets `live`; Monitor treats it as
+// active even when its transcript has been quiet for a long time.
+test('scanSessions/scanMetrics: live comes from the process registry', async (t) => {
+  const cfg = fs.mkdtempSync(path.join(os.tmpdir(), 'csm-scan-live-'));
+  const prevCfg = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = cfg;
+  t.after(() => {
+    if (prevCfg === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = prevCfg;
+  });
+
+  const projects = path.join(cfg, 'projects');
+  const sessionsDir = path.join(cfg, 'sessions');
+  const folder = path.join(projects, 'D--proj');
+  fs.mkdirSync(folder, { recursive: true });
+  fs.mkdirSync(sessionsDir);
+
+  const OPEN = '11111111-aaaa-4bbb-8ccc-000000000001';   // running, transcript quiet for hours
+  const CLOSED = '11111111-aaaa-4bbb-8ccc-000000000002'; // not running
+  const hoursAgo = new Date(Date.now() - 5 * 3600_000).toISOString();
+  for (const id of [OPEN, CLOSED]) {
+    fs.writeFileSync(path.join(folder, `${id}.jsonl`), [
+      { type: 'user', message: { content: 'hi' }, cwd: cfg, gitBranch: 'main', timestamp: hoursAgo },
+      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] }, timestamp: hoursAgo },
+    ].map((o) => JSON.stringify(o)).join('\n'));
+  }
+  fs.writeFileSync(path.join(sessionsDir, `${process.pid}.json`), JSON.stringify({
+    pid: process.pid, sessionId: OPEN, status: 'waiting', startedAt: Date.now() - 60_000,
+    statusUpdatedAt: Date.now() - 1000, nameSource: 'derived', name: 'proj-01',
+  }));
+
+  const base = await scanSessions({ dir: projects, sessionsDir });
+  const byId = Object.fromEntries(base.map((s) => [s.id, s]));
+  assert.equal(byId[OPEN].live.pid, process.pid);
+  assert.equal(byId[OPEN].live.status, 'waiting');
+  assert.equal(byId[CLOSED].live, null);
+  assert.deepEqual(filterSessions(base, { runningOnly: true }).map((s) => s.id), [OPEN]);
+
+  const { sessions: mon } = await scanMetrics({ dir: projects, sessionsDir, cache: new MetricsCache() });
+  const m = Object.fromEntries(mon.map((s) => [s.id, s]));
+  assert.equal(m[OPEN].active, true, 'open in a process = active, however quiet the transcript');
+  assert.equal(m[OPEN].activity, 'waiting', 'registry status refines the idle transcript guess');
+  assert.equal(m[CLOSED].active, false);
+  assert.equal(mon[0].id, OPEN, 'active sessions sort first');
 });

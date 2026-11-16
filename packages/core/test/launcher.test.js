@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLaunch } from '../src/launcher.js';
+import { buildLaunch, launchEnv } from '../src/launcher.js';
 
 test('wt build: argv shape with -- separator before claude', () => {
   const { cmd, args, terminal } = buildLaunch({
@@ -96,4 +96,40 @@ test('posix quoting escapes embedded single quotes (macos)', () => {
   // doubles the backslash. Just assert the path made it in intact and quoted.
   assert.ok(script.includes("o'") && script.includes("brien"));
   assert.ok(script.includes("cd '/Users/o"));
+});
+
+// --- launch environment -----------------------------------------------------
+
+test('launchEnv: strips the parent Claude session markers and color suppressors', () => {
+  const env = launchEnv({
+    PATH: 'C:\\bin',
+    NO_COLOR: '1',
+    CLICOLOR: '0',
+    CLAUDECODE: '1',
+    CLAUDE_CODE_CHILD_SESSION: '1',
+    CLAUDE_CODE_SESSION_ID: '0b63169b',
+    CLAUDE_CODE_SESSION_ATTENDED: '1',
+    CLAUDE_CODE_MESSAGING_SOCKET: '\\\\.\\pipe\\LOCAL\\cc-msg',
+    CLAUDE_CODE_MESSAGING_TOKEN: 'not-a-real-token',
+    CLAUDE_CODE_ENTRYPOINT: 'cli',
+    CLAUDE_CODE_EXECPATH: 'C:\\claude.exe',
+    CLAUDE_PID: '4960',
+  });
+  assert.deepEqual(env, { PATH: 'C:\\bin' });
+});
+
+test('launchEnv: keeps user configuration (CLAUDE_CODE_* settings, ANTHROPIC_*)', () => {
+  const base = {
+    CLAUDE_CODE_GIT_BASH_PATH: 'C:\\Git\\bin\\bash.exe',
+    CLAUDE_CODE_USE_BEDROCK: '1',
+    CLAUDE_CONFIG_DIR: 'D:\\cfg',
+    ANTHROPIC_MODEL: 'claude-opus-5-5',
+  };
+  assert.deepEqual(launchEnv(base), base);
+});
+
+test('launchEnv: does not mutate the source env', () => {
+  const base = { CLAUDECODE: '1', NO_COLOR: '1' };
+  launchEnv(base);
+  assert.deepEqual(base, { CLAUDECODE: '1', NO_COLOR: '1' });
 });

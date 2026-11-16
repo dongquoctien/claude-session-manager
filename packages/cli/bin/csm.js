@@ -4,8 +4,7 @@ import {
   searchSessions,
   filterSessions,
   findSession,
-  buildLaunch,
-  launch,
+  openSession,
   toggleFavorite,
   deleteSession,
   restoreSession,
@@ -23,7 +22,8 @@ Usage:
   csm list [query...]        List conversations (optionally filtered)
   csm search <query...>      Alias for list with a query
   csm monitor                Live dashboard: tokens, cost, activity (Ctrl+C quits)
-  csm open <id|prefix>       Open a terminal and resume that conversation
+  csm open <id|prefix>       Resume in a new terminal — or, if it is already
+                             open, switch to its window (Windows)
   csm fav <id|prefix>        Toggle favorite (pin) for a conversation
   csm rm <id|prefix>         Move a conversation to trash (preview unless --yes)
   csm restore <id|prefix>    Restore a conversation from trash
@@ -37,11 +37,13 @@ Options:
   --interval <ms>            (monitor) Refresh interval, min 250 (default 1000)
   --limit <n>                Limit number of rows (default: all)
   --fav                      (list) Only favorites
+  --running                  (list) Only conversations open in a terminal now
   --recent [days]            (list) Only the last N days (default 7)
   --branch <name>            (list) Only this git branch
   --hide-missing             (list) Hide conversations whose folder is gone
   --dry-run                  (open) Print the command instead of running it
-  --fork                     (open) Resume with --fork-session (new session id)
+  --fork                     (open) Resume with --fork-session (new session id);
+                             always opens a new terminal, even if it's running
   --safe                     (open) Do NOT pass --dangerously-skip-permissions
                              (it is added by default for friction-free resume)
   --terminal <wt|powershell> (open) Force a terminal (default: auto)
@@ -53,6 +55,7 @@ Examples:
   csm list news-tok          Filter to conversations matching "news-tok"
   csm list --fav             Only pinned conversations
   csm list --recent 3        Touched in the last 3 days
+  csm list --running         What is open in a terminal right now
   csm open 0ef59423          Resume by id prefix
   csm fav 0ef59423           Pin/unpin a conversation
   csm rm 0ef59423            Preview what would be trashed
@@ -71,6 +74,7 @@ function parseArgs(argv) {
     else if (a === '--fork') flags.fork = true;
     else if (a === '--safe') flags.safe = true;
     else if (a === '--fav') flags.fav = true;
+    else if (a === '--running') flags.running = true;
     else if (a === '--yes' || a === '-y') flags.yes = true;
     else if (a === '--empty') flags.empty = true;
     else if (a === '--active') flags.active = true;
@@ -110,6 +114,7 @@ async function cmdList(args, flags) {
   const query = args.join(' ').trim();
   if (query) sessions = searchSessions(sessions, query);
   sessions = filterSessions(sessions, {
+    runningOnly: !!flags.running,
     favoritesOnly: !!flags.fav,
     hideOrphans: !!flags.hideMissing,
     branch: flags.branch,
@@ -126,7 +131,9 @@ async function cmdList(args, flags) {
 
   if (sessions.length === 0) {
     process.stdout.write(
-      query ? `No conversations match "${query}".\n` : 'No conversations found.\n',
+      query ? `No conversations match "${query}".\n`
+        : flags.running ? 'No conversation is open in a terminal right now.\n'
+          : 'No conversations found.\n',
     );
     return;
   }
@@ -156,32 +163,58 @@ async function cmdOpen(args, flags) {
   if (!match.cwd) {
     die(`Conversation ${match.id.slice(0, 8)} has no recorded folder; cannot open.`);
   }
+  // Already open in a running claude → switch to its window instead of
+  // starting a second process on the same transcript (--fork always opens).
+  const r = await openSession(match, {
+    fork: !!flags.fork,
+    skipPermissions: !flags.safe, // on by default; --safe opts out
+    terminal: flags.terminal || 'auto',
+    dryRun: !!flags.dryRun,
+  });
+  const pid = r.live ? r.live.pid : null;
+
+  if (r.action === 'focus') {
+    process.stdout.write(c.dim(`[dry-run] already open (pid ${pid}) → would switch to its window\n`));
+    return;
+  }
+  if (r.action === 'launch') {
+    process.stdout.write(c.dim(`[dry-run] terminal=${r.terminal}\n`));
+    process.stdout.write(`${r.cmd} ${r.args.map((x) => (/\s/.test(x) ? `"${x}"` : x)).join(' ')}\n`);
+    return;
+  }
+  if (r.action === 'focused') {
+    process.stdout.write(c.green('Switched to ') + c.bold(match.title) + c.dim(`  (already open · pid ${pid})`) + '\n');
+    return;
+  }
+  if (r.action === 'flashed') {
+    process.stdout.write(
+      c.yellow('Already open: ') + c.bold(match.title) + c.dim(`  (pid ${pid})`) + '\n' +
+      c.dim('  Windows kept the focus here, so its taskbar button is flashing.') + '\n',
+    );
+    return;
+  }
+  if (r.action === 'running') {
+    const why = r.focus && r.focus.result === 'unsupported'
+      ? 'switching windows works on Windows only'
+      : r.focus && r.focus.result === 'no-window'
+        ? 'it is not in a terminal window csm can bring up'
+        : `its window couldn't be brought up${r.focus && r.focus.error ? ` (${r.focus.error})` : ''}`;
+    process.stdout.write(
+      c.yellow('Already open: ') + c.bold(match.title) + c.dim(`  (pid ${pid})`) + '\n' +
+      c.dim(`  Not starting a second copy: ${why}. Use --fork to open a copy.`) + '\n',
+    );
+    return;
+  }
+
   if (!match.cwdExists) {
     process.stderr.write(
       c.yellow(`Warning: folder no longer exists:\n  ${match.cwd}\nClaude may fail to resume.\n`),
     );
   }
-
-  const launchOpts = {
-    cwd: match.cwd,
-    sessionId: match.id,
-    fork: !!flags.fork,
-    skipPermissions: !flags.safe, // on by default; --safe opts out
-    terminal: flags.terminal || 'auto',
-  };
-
-  if (flags.dryRun) {
-    const { cmd, args: a, terminal } = buildLaunch(launchOpts);
-    process.stdout.write(c.dim(`[dry-run] terminal=${terminal}\n`));
-    process.stdout.write(`${cmd} ${a.map((x) => (/\s/.test(x) ? `"${x}"` : x)).join(' ')}\n`);
-    return;
-  }
-
-  const { terminal } = launch(launchOpts);
   process.stdout.write(
     c.green('Opening ') + c.bold(match.title) + '\n' +
     c.dim(`  ${match.cwd}`) + (match.branch ? c.dim(`  (${match.branch})`) : '') + '\n' +
-    c.dim(`  via ${terminal} · resume ${match.id.slice(0, 8)}`) + '\n',
+    c.dim(`  via ${r.terminal} · resume ${match.id.slice(0, 8)}`) + '\n',
   );
 }
 
