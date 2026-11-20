@@ -113,6 +113,14 @@ exact tab) instead of starting a second `claude` on the same transcript. Fork
 still opens a new terminal. Switching windows is Windows-only; elsewhere csm
 says it's already open and starts nothing.
 
+**Pin to the side** (pin button, Chrome/Edge): the Sessions list moves into a
+small always-on-top window docked to the nearest screen edge, so you can keep
+it beside your terminals. While it's pinned, every conversation you open or
+switch to is placed in the space next to it (Windows). Close the floating
+window (or click the pin again) to bring the list back into the tab. The
+layout is responsive, so the same list also works in a narrow tab or on a
+phone.
+
 **Security:** the agent binds `127.0.0.1` only, requires a per-run token
 (embedded in the URL it prints/opens), rejects foreign `Host` headers
 (anti DNS-rebind), and `POST /api/open` only accepts a sessionId already

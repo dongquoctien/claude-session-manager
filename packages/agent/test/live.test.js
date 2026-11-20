@@ -157,3 +157,8 @@ test('live hub: watches only while someone listens, and a late subscriber gets a
   assert.deepEqual(again, [['hub-1']], 'restarting after idle still delivers a snapshot');
   unsubC();
 });
+
+test('/api/pip/dock requires a token (401)', async () => {
+  const r = await fetch(`${baseUrl}/api/pip/dock`, { method: 'POST' });
+  assert.equal(r.status, 401);
+});

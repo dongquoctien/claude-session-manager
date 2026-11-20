@@ -11,8 +11,16 @@ function paramsOf(script) {
 
 test('params round-trip through the base64 literal', () => {
   const script = buildFocusScript({ pid: 1234, procStart: '134391018044130220', titles: ['VOC', '', null, 'Lỗi tên'] });
-  assert.ok(!script.includes('__CSM_PARAMS__'));
-  assert.deepEqual(paramsOf(script), { pid: 1234, procStart: '134391018044130220', titles: ['VOC', 'Lỗi tên'] });
+  assert.ok(!/__CSM_[A-Z_]+__/.test(script), 'every placeholder is filled');
+  assert.deepEqual(paramsOf(script), { pid: 1234, procStart: '134391018044130220', titles: ['VOC', 'Lỗi tên'], place: false });
+});
+
+test('place: the layout code is embedded but only compiled when asked for', () => {
+  const script = buildFocusScript({ pid: 1, place: true });
+  assert.equal(paramsOf(script).place, true);
+  assert.ok(script.includes('public static class CsmLayout'));
+  assert.match(script, /if \(\$P\.place\) \{\s+Add-Type/);
+  assert.match(script, /PlaceBeside\(\$top, 'Claude Session Manager', \d+\)/);
 });
 
 test('a hostile title never reaches the script as code', () => {

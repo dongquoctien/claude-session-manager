@@ -53,8 +53,11 @@ html, body {
   background: var(--bg);
   color: var(--text);
   font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  min-width:700px;
+  /* The Sessions view is responsive down to phone width (see the ≤600px
+     rules at the end); Monitor/Office keep their own 700px floor below. */
+  min-width: 320px;
 }
+#view-monitor, #view-office { min-width: 700px; }
 
 /* --- top bar --- */
 .topbar {
@@ -211,7 +214,7 @@ html, body {
   outline: 2px solid var(--accent-dim);
   outline-offset: 1px;
 }
-#refresh, #theme-toggle {
+#refresh, #theme-toggle, .icon-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -223,7 +226,9 @@ html, body {
   border-radius: 8px;
   cursor: pointer;
 }
-#refresh:hover, #theme-toggle:hover { background: var(--bg-row-hover); color: var(--text); }
+#refresh:hover, #theme-toggle:hover, .icon-btn:hover { background: var(--bg-row-hover); color: var(--text); }
+.icon-btn[hidden] { display: none; }
+#pin-toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent-dim); }
 
 /* Show the icon that represents the theme you'd switch TO. */
 #theme-toggle .icon-sun { display: none; }
@@ -1748,3 +1753,71 @@ html, body {
     100% { opacity: 0; }
   }
 }
+
+/* --- narrow / phone width (≤600px): the pinned Sessions window (~480px), a
+   narrow tab, a phone. Same markup; tighter spacing, nothing hidden that
+   matters, and the row action always visible (no hover on touch). --- */
+@media (max-width: 600px) {
+  .topbar { gap: 8px 10px; padding: 8px 10px; }
+  .brand span { display: none; } /* logo only */
+  .actions { gap: 8px; }
+
+  .filterbar { gap: 6px; padding: 8px 10px; }
+  .chip { padding: 3px 9px; font-size: 12px; }
+  .switch { font-size: 12px; gap: 6px; }
+  .view-mode-seg { margin-left: auto; }
+  /* Folders / Recent: icon-only (the label is a bare text node, hence
+     font-size 0); the buttons keep their title tooltips. */
+  .view-mode-seg .seg-btn { padding: 4px 8px; font-size: 0; }
+  .view-mode-seg .icon { width: 14px; height: 14px; }
+
+  .selection-bar { padding: 8px 10px; margin: 6px 10px 0; }
+  .list { padding: 8px 10px 72px; }
+  .group-head { margin: 0 -10px 6px; padding: 10px 12px; }
+  .group-label {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .row { gap: 8px; padding: 8px 10px; }
+  .row-meta { flex-wrap: wrap; gap: 2px 10px; }
+  .row-meta .folder { max-width: 100%; }
+  /* Open / Switch to: icon-only and always shown. */
+  .row-open { opacity: 0.85; }
+  .row-open > span { display: none; }
+  .row-open .icon { width: 16px; height: 16px; }
+  .row-del { margin-left: 0; padding-left: 6px; }
+
+  .toast { bottom: 12px; max-width: calc(100vw - 24px); }
+}
+/* Touch screens have no hover: show the per-row controls. */
+@media (hover: none) {
+  .row-star, .row-open { opacity: 1; }
+  .row-del { opacity: 0.55; }
+}
+
+/* --- floating Sessions window (Document Picture-in-Picture, body.pip) ---
+   The list moves into a ~480px always-on-top window pinned to a screen edge
+   (the ≤600px rules above do the layout); its own header holds the search,
+   the two open options, rescan and unpin. */
+.pip-topbar .search-wrap { order: 0; flex: 1 1 100%; max-width: none; }
+.pip-topbar .actions { margin-left: auto; }
+
+/* The page while the list floats: a placeholder where the list was. */
+.pip-placeholder { display: flex; justify-content: center; padding: 72px 18px; }
+.pip-placeholder[hidden] { display: none; }
+.pip-placeholder-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 440px;
+  text-align: center;
+  color: var(--text-dim);
+}
+.pip-placeholder-card h2 { margin: 4px 0 0; color: var(--text); font-size: 17px; }
+.pip-placeholder-card p { margin: 0 0 8px; line-height: 1.5; }
+.pip-placeholder-icon { width: 30px; height: 30px; color: var(--accent); }

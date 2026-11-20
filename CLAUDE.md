@@ -136,6 +136,37 @@ Hard-won, verified on real windows — keep it:
   stdout while attached to the target console. ~0.7s per switch.
 - The PID comes from the registry, never from the client request.
 
+## Pinned Sessions window (web, Chrome/Edge — `core/dock.js`, "Pin" button)
+
+The Sessions list can float in a Document Picture-in-Picture window pinned to
+a screen edge; terminals opened/switched to go in the space beside it
+(`/api/open` with `place: true`). Verified on Chrome 157 — keep these:
+- **Finding the PiP window natively:** a visible, **topmost**
+  `Chrome_WidgetWin_*` window whose title is **exactly** the page `<title>`
+  (`PIP_WINDOW_TITLE`, a test keeps it in sync with index.html). The title is
+  fixed at creation: later `document.title` changes (opener or PiP doc) never
+  reach it, so a per-window marker is impossible. ≠1 match → touch nothing.
+- **Chrome caps PiP height (~85% of the work area)** — "full height" is as
+  tall as Chrome allows. Width/position can be set with SetWindowPos.
+- **First move races Chrome:** right after opening, Chrome is still settling
+  the initial bounds and overrode ours (~60px off the edge). `dockPipWindow`
+  re-checks and re-places until it stays flush.
+- Dock side = the half the window is in, so Chrome's own "reopen where it
+  was" remembers the user's side. Placement works on the VISIBLE frame
+  (`DWMWA_EXTENDED_FRAME_BOUNDS`, invisible borders excluded), per-monitor
+  DPI aware.
+- **Web side, moving DOM into the PiP document:** nodes are moved (listeners
+  survive) and put back on `pagehide`. Things that DON'T follow the node:
+  `<use href="#i-…">` resolves in its own document (clone the sprite in);
+  a `ResizeObserver` only sees its own window's document (create one from
+  the PiP window); listeners on `document` (keydown, dropdown outside-click,
+  modal Escape) must be bound on the node's `ownerDocument`; stylesheet must
+  finish loading before measuring (else `--filterbar-h` is wrong and sticky
+  headers overlap rows).
+- The page is responsive down to 320px (the PiP is ~480px). There used to be
+  `min-width: 700px` on `html, body` for the old Electron window — it forced
+  horizontal overflow in the PiP; only Monitor/Office keep a 700px floor.
+
 ## Live list (`agent/src/live.js`, `/api/live`)
 
 Separate from `/api/stream` on purpose: the metrics stream re-scans every
