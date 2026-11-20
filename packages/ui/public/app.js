@@ -29,10 +29,12 @@ const fetchSessions = (params) => {
 
 // slug pins which copy when the same UUID exists in two project folders
 // (a session started in a worktree, then continued in the main repo).
-const openSession = (id, { fork, skipPermissions, slug }) =>
+// place: the list is pinned to the side, so the agent puts the terminal
+// window in the space next to it.
+const openSession = (id, { fork, skipPermissions, slug, place }) =>
   api('/api/open', {
     method: 'POST',
-    body: JSON.stringify({ id, fork, skipPermissions, slug }),
+    body: JSON.stringify({ id, fork, skipPermissions, slug, place }),
   });
 
 const favoriteSession = (id) =>
@@ -131,14 +133,19 @@ function createDropdown(rootId) {
     trigger.setAttribute('aria-expanded', 'true');
     activeIdx = Math.max(0, options.findIndex((o) => o.value === value));
     highlight(activeIdx);
-    document.addEventListener('click', onOutside, true);
+    // The dropdown may live in the floating (PiP) window: listen on the
+    // document it is in right now, not the page's own.
+    outsideDoc = root.ownerDocument;
+    outsideDoc.addEventListener('click', onOutside, true);
   }
   function close() {
     if (menu.hidden) return;
     menu.hidden = true;
     trigger.setAttribute('aria-expanded', 'false');
-    document.removeEventListener('click', onOutside, true);
+    if (outsideDoc) outsideDoc.removeEventListener('click', onOutside, true);
+    outsideDoc = null;
   }
+  let outsideDoc = null;
   function onOutside(e) { if (!root.contains(e.target)) close(); }
 
   function buildMenu() {
@@ -218,13 +225,14 @@ function confirmModal({ title, path }) {
     $modalPath.textContent = path;
     $modalOverlay.hidden = false;
     $modalConfirm.focus();
+    const doc = $modalOverlay.ownerDocument; // the page, or the floating window
 
     const cleanup = () => {
       $modalOverlay.hidden = true;
       $modalConfirm.removeEventListener('click', onConfirm);
       $modalCancel.removeEventListener('click', onCancel);
       $modalOverlay.removeEventListener('click', onBackdrop);
-      document.removeEventListener('keydown', onKey);
+      doc.removeEventListener('keydown', onKey);
     };
     const done = (val) => { cleanup(); resolve(val); };
     const onConfirm = () => done(true);
@@ -238,7 +246,7 @@ function confirmModal({ title, path }) {
     $modalConfirm.addEventListener('click', onConfirm);
     $modalCancel.addEventListener('click', onCancel);
     $modalOverlay.addEventListener('click', onBackdrop);
-    document.addEventListener('keydown', onKey);
+    doc.addEventListener('keydown', onKey);
   });
 }
 
@@ -647,11 +655,13 @@ async function doOpen(s) {
       fork: $fork.checked,
       skipPermissions: $skipperms.checked,
       slug: s.projectSlug,
+      place: !!pipWin,
     });
     const name = `“${r.title || s.title}”`;
     if (r.action === 'focused') toast(`Switched to ${name} — it was already open`, 'ok');
     else if (r.action === 'flashed') toast(`${name} is already open. Windows kept the focus here, so its taskbar button is flashing.`, 'warn');
     else if (r.action === 'running') toast(alreadyOpenMessage(name, r), 'warn');
+    else if (r.placing) toast(`Opening ${name} — it will appear beside the list`, 'ok');
     else toast(`Opening ${name} via ${r.terminal}`, 'ok');
   } catch (err) {
     toast(`Failed to open: ${err.message}`, 'err');
@@ -830,8 +840,14 @@ function setActive(i) {
   }
 }
 
-document.addEventListener('keydown', (e) => {
-  if (e.key === '/' && document.activeElement !== $search) {
+/**
+ * Keyboard nav for the list. Attached to the page and, while the list is
+ * floating, to the floating window too; only the document that currently
+ * holds the list reacts.
+ */
+function onListKeydown(e) {
+  if (e.currentTarget !== $list.ownerDocument) return;
+  if (e.key === '/' && $list.ownerDocument.activeElement !== $search) {
     e.preventDefault();
     $search.focus();
     $search.select();
@@ -856,7 +872,8 @@ document.addEventListener('keydown', (e) => {
       refresh();
     }
   }
-});
+}
+document.addEventListener('keydown', onListKeydown);
 
 $search.addEventListener('input', () => {
   clearTimeout(searchTimer);
@@ -881,9 +898,14 @@ $fork.addEventListener('change', applyLive);
 // The filterbar wraps to two lines on narrow windows; publish its real height
 // so the sticky folder headers and selection bar stay just below it.
 const $filterbar = document.querySelector('.filterbar');
-new ResizeObserver(() => {
-  document.documentElement.style.setProperty('--filterbar-h', `${$filterbar.offsetHeight}px`);
-}).observe($filterbar);
+function syncFilterbarHeight() {
+  // Set on whichever document holds the bar (the page, or the floating window).
+  $filterbar.ownerDocument.documentElement.style.setProperty('--filterbar-h', `${$filterbar.offsetHeight}px`);
+}
+// A ResizeObserver only sees elements in its own window's document, so the
+// floating window gets its own while the bar lives there (see pinSessions).
+const filterbarObserver = new ResizeObserver(syncFilterbarHeight);
+filterbarObserver.observe($filterbar);
 
 // --- list layout (Folders | Recent) ---------------------------------------
 
@@ -3538,7 +3560,16 @@ const $views = {
 
 function switchTab(name) {
   for (const t of $tabs) t.setAttribute('aria-selected', String(t.dataset.tab === name));
-  for (const [k, v] of Object.entries($views)) v.hidden = k !== name;
+  for (const [k, v] of Object.entries($views)) {
+    // While the list floats, its view stays shown in the floating window; the
+    // page shows a placeholder in its place instead.
+    if (k === 'sessions' && pipWin) {
+      v.hidden = false;
+      if (pipPlaceholder) pipPlaceholder.hidden = name !== 'sessions';
+      continue;
+    }
+    v.hidden = k !== name;
+  }
   showFeedInPill(name === 'sessions' ? 'live' : 'stream');
   // Office shares the Monitor SSE stream, so opening either starts it.
   if (name === 'monitor' || name === 'office') Monitor.start();
@@ -3547,6 +3578,179 @@ function switchTab(name) {
 }
 
 for (const t of $tabs) t.addEventListener('click', () => switchTab(t.dataset.tab));
+
+// --- floating Sessions window ("Pin to side") -----------------------------
+//
+// The Sessions list moves into an always-on-top Document Picture-in-Picture
+// window (Chrome/Edge), which the agent pins to the nearest screen edge
+// (core/dock.js). While it floats, Switch to / Open put the terminal in the
+// space beside it. The DOM nodes are MOVED, not copied, so every listener and
+// all state keep working; closing the window puts them back.
+
+const $pinToggle = document.getElementById('pin-toggle');
+let pipWin = null;          // the floating window, while open
+let pipPlaceholder = null;  // what the page shows where the list used to be
+let pipThemeObserver = null;
+let pipResizeObserver = null; // the floating window's own (see syncFilterbarHeight)
+const pipMoved = [];        // [{ node, mark }] to put back on close
+
+function currentTabName() {
+  const t = $tabs.find((x) => x.getAttribute('aria-selected') === 'true');
+  return t ? t.dataset.tab : 'sessions';
+}
+
+/** Move a node into `parent` (another document), leaving a marker to return to. */
+function pipMove(node, parent) {
+  const mark = document.createComment('pinned');
+  node.before(mark);
+  pipMoved.push({ node, mark });
+  parent.appendChild(node);
+}
+
+function syncPipTheme() {
+  if (!pipWin) return;
+  const theme = document.documentElement.getAttribute('data-theme');
+  const root = pipWin.document.documentElement;
+  if (theme) root.setAttribute('data-theme', theme);
+  else root.removeAttribute('data-theme');
+}
+
+function buildPipPlaceholder() {
+  const box = el('section', 'view pip-placeholder');
+  const card = el('div', 'pip-placeholder-card');
+  card.appendChild(icon('pin', 'pip-placeholder-icon'));
+  card.appendChild(el('h2', null, 'Sessions is pinned to the side'));
+  card.appendChild(el('p', null,
+    'The list is in its own window, always on top. Terminals you open or switch to go in the space next to it.'));
+  const back = el('button', 'btn btn-ghost');
+  back.append(icon('pin-off'), el('span', null, 'Bring it back here'));
+  back.addEventListener('click', () => { if (pipWin) pipWin.close(); });
+  card.appendChild(back);
+  box.appendChild(card);
+  return box;
+}
+
+function setPinButton(pinned) {
+  $pinToggle.setAttribute('aria-pressed', String(pinned));
+  $pinToggle.replaceChildren(icon(pinned ? 'pin-off' : 'pin'));
+  $pinToggle.title = pinned
+    ? 'Bring the Sessions list back into this tab'
+    : 'Pin the Sessions list to the side of the screen — always on top; terminals open beside it';
+}
+
+async function pinSessions() {
+  if (pipWin) { pipWin.focus(); return; }
+  let w;
+  try {
+    w = await window.documentPictureInPicture.requestWindow({
+      width: 480,
+      // Chrome caps a PiP window's height (~85% of the screen); ask for that.
+      height: Math.max(560, Math.round(screen.availHeight * 0.85)),
+    });
+  } catch (err) {
+    toast(`Couldn't open the floating window: ${err.message}`, 'err');
+    return;
+  }
+  pipWin = w;
+  const doc = w.document;
+  doc.title = 'Sessions · Claude Session Manager';
+  const viewport = doc.createElement('meta');
+  viewport.name = 'viewport';
+  viewport.content = 'width=device-width, initial-scale=1.0';
+  doc.head.appendChild(viewport);
+  const css = doc.createElement('link');
+  css.rel = 'stylesheet';
+  css.href = new URL('/styles.css', location.href).href;
+  // Wait for the styles before moving anything in: sizes measured on an
+  // unstyled page (the filter bar's height, for the sticky offsets) are wrong.
+  await new Promise((resolve) => {
+    css.addEventListener('load', resolve, { once: true });
+    css.addEventListener('error', resolve, { once: true });
+    setTimeout(resolve, 2000);
+    doc.head.appendChild(css);
+  });
+  syncPipTheme();
+  pipThemeObserver = new MutationObserver(syncPipTheme);
+  pipThemeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  doc.body.classList.add('pip');
+  // <use href="#i-…"> resolves inside its own document: give it the sprite.
+  doc.body.appendChild(document.querySelector('body > svg').cloneNode(true));
+
+  // Compact header: search, the two open options, rescan, unpin.
+  const bar = doc.createElement('header');
+  bar.className = 'topbar pip-topbar';
+  doc.body.appendChild(bar);
+  pipMove($search.closest('.search-wrap'), bar);
+  const actions = doc.createElement('div');
+  actions.className = 'actions';
+  bar.appendChild(actions);
+  pipMove($skipperms.closest('label'), actions);
+  pipMove($fork.closest('label'), actions);
+  pipMove($refresh, actions);
+  const unpin = doc.createElement('button');
+  unpin.className = 'icon-btn';
+  unpin.title = 'Bring the Sessions list back into the tab';
+  unpin.setAttribute('aria-label', unpin.title);
+  unpin.appendChild(icon('pin-off'));
+  unpin.addEventListener('click', () => w.close());
+  actions.appendChild(unpin);
+
+  // The list itself, plus the toast and the delete dialog it uses.
+  pipMove($views.sessions, doc.body);
+  $views.sessions.hidden = false;
+  pipMove($toast, doc.body);
+  pipMove($modalOverlay, doc.body);
+
+  pipPlaceholder = buildPipPlaceholder();
+  pipMoved.find((m) => m.node === $views.sessions).mark.after(pipPlaceholder);
+  pipPlaceholder.hidden = currentTabName() !== 'sessions';
+
+  doc.addEventListener('keydown', onListKeydown);
+  // Sticky offsets inside the floating window: its own header + filter bar.
+  pipResizeObserver = new w.ResizeObserver((entries) => {
+    for (const e of entries) {
+      if (e.target === bar) {
+        doc.documentElement.style.setProperty('--topbar-h', `${Math.round(bar.getBoundingClientRect().height)}px`);
+      } else {
+        syncFilterbarHeight();
+      }
+    }
+  });
+  pipResizeObserver.observe(bar);
+  pipResizeObserver.observe($filterbar);
+  syncFilterbarHeight();
+  setPinButton(true);
+  w.addEventListener('pagehide', unpinSessions);
+  $search.focus();
+
+  // Pin the window to the nearest screen edge (no-op off Windows).
+  api('/api/pip/dock', { method: 'POST', body: '{}' }).catch(() => {});
+}
+
+/** The floating window closed (Unpin, its own X, or the tab went away). */
+function unpinSessions() {
+  if (!pipWin) return;
+  pipWin = null;
+  if (pipThemeObserver) pipThemeObserver.disconnect();
+  if (pipResizeObserver) pipResizeObserver.disconnect();
+  pipThemeObserver = null;
+  pipResizeObserver = null;
+  while (pipMoved.length) {
+    const { node, mark } = pipMoved.pop();
+    mark.replaceWith(node); // back into the page (adopted)
+  }
+  if (pipPlaceholder) pipPlaceholder.remove();
+  pipPlaceholder = null;
+  switchTab(currentTabName());
+  filterbarObserver.observe($filterbar); // re-arm the page's own observer
+  syncFilterbarHeight();
+  setPinButton(false);
+}
+
+if ('documentPictureInPicture' in window) {
+  $pinToggle.hidden = false;
+  $pinToggle.addEventListener('click', () => (pipWin ? pipWin.close() : pinSessions()));
+}
 
 // --- boot -----------------------------------------------------------------
 
@@ -3558,8 +3762,9 @@ paintPill();
 // selection is in progress so we don't wipe the user's checkboxes.
 setInterval(() => {
   if (
-    document.visibilityState === 'visible' &&
-    document.activeElement !== $search &&
+    // The floating list is on screen even when this tab is in the background.
+    (document.visibilityState === 'visible' || pipWin) &&
+    $search.ownerDocument.activeElement !== $search &&
     !$views.sessions.hidden &&
     selected.size === 0
   ) {

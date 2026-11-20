@@ -11,6 +11,7 @@ import {
   filterSessions,
   findSession,
   openSession,
+  dockPipWindow,
   toggleFavorite,
   deleteSession,
   restoreSession,
@@ -169,6 +170,13 @@ export function createServer(opts = {}) {
         return handleOpen(res, body, getSessions);
       }
 
+      if (req.method === 'POST' && url.pathname === '/api/pip/dock') {
+        // The web UI just floated its Sessions list (Document Picture-in-
+        // Picture): pin that window to the nearest screen edge. Takes no
+        // input — the window is found natively (see core/dock.js).
+        return send(res, 200, await dockPipWindow());
+      }
+
       if (req.method === 'POST' && url.pathname === '/api/favorite') {
         const body = await readJson(req);
         if (!body || typeof body.id !== 'string') {
@@ -319,6 +327,8 @@ async function handleOpen(res, body, getSessions) {
       : true,
     terminal: (body && body.terminal) || 'auto',
     dryRun: !!(body && body.dryRun),
+    // Sessions list floating beside the terminals: put the terminal next to it.
+    place: !!(body && body.place),
   });
 
   const common = {
@@ -333,7 +343,13 @@ async function handleOpen(res, body, getSessions) {
   if (r.dryRun) {
     return send(res, 200, { dryRun: true, ...common, terminal: r.terminal, cmd: r.cmd, args: r.args });
   }
-  return send(res, 200, { ok: true, ...common, terminal: r.terminal || null, focus: r.focus || null });
+  return send(res, 200, {
+    ok: true,
+    ...common,
+    terminal: r.terminal || null,
+    focus: r.focus || null,
+    placing: !!r.placing,
+  });
 }
 
 /**

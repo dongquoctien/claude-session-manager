@@ -1,4 +1,5 @@
 import { runPowerShell } from './powershell.js';
+import { LAYOUT_CS, PIP_WINDOW_TITLE, MIN_FREE_WIDTH, psString } from './dock.js';
 
 /**
  * Bring the terminal window that hosts a running Claude Code process to the
@@ -25,7 +26,9 @@ import { runPowerShell } from './powershell.js';
  *     shows (profile has `suppressApplicationTitle`), fall back to matching the
  *     tab name against the session's titles; if that is not a single hit, only
  *     the window is raised.
- *  4. Raise: restore if minimized, SetForegroundWindow, then the usual
+ *  4. Optional `place`: when the web UI's Sessions list is floating (pinned to
+ *     a screen edge, see dock.js), move the window into the space beside it.
+ *  5. Raise: restore if minimized, SetForegroundWindow, then the usual
  *     fallbacks (AttachThreadInput, a synthetic Alt tap) for the foreground
  *     lock. If Windows still refuses, flash the taskbar button → `flashed`.
  *
@@ -35,6 +38,7 @@ import { runPowerShell } from './powershell.js';
  * @property {'marker'|'title'|null} [tabBy]  how the tab was identified
  * @property {string|null} [host]  window class or host process name
  * @property {number|null} [hwnd]  the window that was raised
+ * @property {'placed'|'no-pip'|'ambiguous'|'no-room'|null} [placed]  outcome of `place`
  * @property {string} [error]
  */
 
@@ -91,7 +95,13 @@ public static class CsmW {
   }
 }
 "@
-$r = [ordered]@{ result = $null; tab = $null; tabBy = $null; host = $null; hwnd = $null }
+if ($P.place) {
+  Add-Type @"
+__CSM_LAYOUT__
+"@
+  [CsmLayout]::DpiAware()
+}
+$r = [ordered]@{ result = $null; tab = $null; tabBy = $null; host = $null; hwnd = $null; placed = $null }
 $attached = $false; $restore = $null
 function Norm([string]$s) { if (-not $s) { return '' }; ($s -replace '^[^\p{L}\p{N}]+', '').Trim().ToLowerInvariant() }
 try {
@@ -158,6 +168,7 @@ try {
           } else { $r.tab = 'not-found' }
         }
       }
+      if ($P.place) { $r.placed = [CsmLayout]::PlaceBeside($top, __CSM_PIP_TITLE__, __CSM_MIN_FREE__) }
       if ([CsmW]::Raise($top)) { $r.result = 'focused' } else { [CsmW]::Flash($top); $r.result = 'flashed' }
     }
   }
@@ -176,7 +187,7 @@ try {
  * Build the PowerShell script for given params (params are embedded as
  * base64 JSON, so no value can break out of the string literal). Exported
  * for tests.
- * @param {{ pid: number, procStart?: string|null, titles?: string[] }} params
+ * @param {{ pid: number, procStart?: string|null, titles?: string[], place?: boolean }} params
  * @returns {string}
  */
 export function buildFocusScript(params) {
@@ -184,17 +195,24 @@ export function buildFocusScript(params) {
     pid: params.pid,
     procStart: params.procStart || null,
     titles: (params.titles || []).filter((t) => typeof t === 'string' && t),
+    place: !!params.place,
   });
-  return PS_SCRIPT.replace('__CSM_PARAMS__', Buffer.from(json, 'utf8').toString('base64'));
+  // Function replacements: a plain string would have `$&`-style patterns expanded.
+  return PS_SCRIPT
+    .replace('__CSM_PARAMS__', () => Buffer.from(json, 'utf8').toString('base64'))
+    .replace('__CSM_LAYOUT__', () => LAYOUT_CS)
+    .replace('__CSM_PIP_TITLE__', () => psString(PIP_WINDOW_TITLE))
+    .replace('__CSM_MIN_FREE__', () => String(MIN_FREE_WIDTH));
 }
 
 /**
  * Bring the window hosting a running Claude Code process to the front.
  * Never throws: failures come back as `{ result: 'error' }`.
  *
- * @param {{ pid: number, procStart?: string|null, titles?: string[] }} params
+ * @param {{ pid: number, procStart?: string|null, titles?: string[], place?: boolean }} params
  *   titles — the session's names (custom/AI title), used only as a fallback to
- *   pick the tab when the title marker can't be used
+ *   pick the tab when the title marker can't be used;
+ *   place — also move the window beside the floating Sessions window
  * @param {{ timeoutMs?: number }} [opts]
  * @returns {Promise<FocusResult>}
  */

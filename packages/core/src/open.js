@@ -18,7 +18,51 @@ import { launch, buildLaunch } from './launcher.js';
  * @property {string} [terminal]
  * @property {string} [cmd]
  * @property {string[]} [args]
+ * @property {boolean} [placing]  a new terminal will be moved beside the
+ *           floating Sessions window once it has started
  */
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * After a launch, wait for the new `claude` to register (~2s; up to
+ * `timeoutMs`), then move its window beside the floating Sessions window.
+ * Resolves with the focus result, or `{ result: 'timeout' }`. Never throws.
+ *
+ * @param {{ id: string, title: string }} session
+ * @param {Object} [deps]
+ * @param {(id: string) => import('./liveSessions.js').LiveInfo|null} [deps.readLive]
+ * @param {string} [deps.sessionsDir]
+ * @param {typeof focusSessionWindow} [deps.focus]
+ * @param {{ timeoutMs?: number, intervalMs?: number, now?: () => number }} [opts]
+ * @returns {Promise<import('./focus.js').FocusResult|{ result: 'timeout' }>}
+ */
+export async function placeWhenLive(session, deps = {}, opts = {}) {
+  const timeoutMs = opts.timeoutMs ?? 20_000;
+  const intervalMs = opts.intervalMs ?? 400;
+  const now = opts.now || Date.now;
+  const started = now();
+  const readLive = deps.readLive
+    || ((id) => liveSessionMap({ dir: deps.sessionsDir }).get(id) || null);
+  try {
+    while (now() - started < timeoutMs) {
+      const live = readLive(session.id);
+      // Only the process we just launched (a dead one's file can linger).
+      if (live && (live.startedAt == null || live.startedAt >= started - 5000)) {
+        return await (deps.focus || focusSessionWindow)({
+          pid: live.pid,
+          procStart: live.procStart,
+          titles: [session.title],
+          place: true,
+        });
+      }
+      await sleep(intervalMs);
+    }
+  } catch {
+    // fall through: placement is best-effort
+  }
+  return { result: 'timeout' };
+}
 
 /**
  * Open a conversation the right way: if a `claude` process already has it
@@ -29,17 +73,22 @@ import { launch, buildLaunch } from './launcher.js';
  * Live state is read fresh here (not from a cached scan) because this decides
  * whether a process gets spawned.
  *
+ * `place` (web UI with the Sessions list floating): put the terminal in the
+ * space beside that window — right away when switching, and once it has
+ * started when launching (in the background; the call doesn't wait for it).
+ *
  * @param {import('./scanner.js').Session} session
- * @param {Omit<import('./launcher.js').LaunchOptions, 'cwd'|'sessionId'> & { dryRun?: boolean }} [opts]
+ * @param {Omit<import('./launcher.js').LaunchOptions, 'cwd'|'sessionId'> & { dryRun?: boolean, place?: boolean }} [opts]
  * @param {Object} [deps]  injection points (testing)
  * @param {import('./liveSessions.js').LiveInfo|null} [deps.live]  skip the registry read
  * @param {string} [deps.sessionsDir]
  * @param {typeof focusSessionWindow} [deps.focus]
  * @param {typeof launch} [deps.launch]
+ * @param {typeof placeWhenLive} [deps.placeWhenLive]
  * @returns {Promise<OpenResult>}
  */
 export async function openSession(session, opts = {}, deps = {}) {
-  const { dryRun = false, ...launchRest } = opts;
+  const { dryRun = false, place = false, ...launchRest } = opts;
   const launchOpts = { ...launchRest, cwd: session.cwd, sessionId: session.id };
 
   const live = deps.live !== undefined
@@ -52,6 +101,7 @@ export async function openSession(session, opts = {}, deps = {}) {
       pid: live.pid,
       procStart: live.procStart,
       titles: [session.title],
+      place,
     });
     if (focus.result === 'focused' || focus.result === 'flashed') {
       return { action: focus.result, live, focus };
@@ -64,5 +114,9 @@ export async function openSession(session, opts = {}, deps = {}) {
 
   if (dryRun) return { action: 'launch', dryRun: true, live: null, ...buildLaunch(launchOpts) };
   const launched = (deps.launch || launch)(launchOpts);
+  if (place) {
+    (deps.placeWhenLive || placeWhenLive)(session, deps).catch(() => {});
+    return { action: 'launched', live: null, placing: true, ...launched };
+  }
   return { action: 'launched', live: null, ...launched };
 }
