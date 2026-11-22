@@ -15,7 +15,7 @@ export {
   Status,
   ACTIVE_WINDOW_MS,
 } from './metrics.js';
-export { launch, buildLaunch, findWindowsTerminal, launchEnv } from './launcher.js';
+export { launch, buildLaunch, claudeArgsFor, findWindowsTerminal, launchEnv } from './launcher.js';
 export {
   readSessionRecords,
   liveSessionMap,
@@ -25,6 +25,15 @@ export {
 export { focusSessionWindow } from './focus.js';
 export { dockPipWindow, PIP_WINDOW_TITLE } from './dock.js';
 export { openSession, placeWhenLive } from './open.js';
+export {
+  startNewSession,
+  recentFolders,
+  resolveFolder,
+  normalizeFolderInput,
+  cleanSessionName,
+  MAX_NAME_LENGTH,
+} from './newSession.js';
+export { pickFolder } from './folderPicker.js';
 export { readState, writeState, toggleFavorite, favoriteSet, statePath } from './state.js';
 export { deleteSession, restoreSession, listTrash, emptyTrash, trashDir } from './trash.js';
 export { generateChatter, parseChatter, resolveClaudeBin, CHATTER_LANGS } from './chatter.js';

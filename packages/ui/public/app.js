@@ -847,6 +847,8 @@ function setActive(i) {
  */
 function onListKeydown(e) {
   if (e.currentTarget !== $list.ownerDocument) return;
+  // A dialog is up: its keys (Enter, Escape, `/` in a path) are its own.
+  if (!$modalOverlay.hidden || !$newOverlay.hidden) return;
   if (e.key === '/' && $list.ownerDocument.activeElement !== $search) {
     e.preventDefault();
     $search.focus();
@@ -3579,6 +3581,223 @@ function switchTab(name) {
 
 for (const t of $tabs) t.addEventListener('click', () => switchTab(t.dataset.tab));
 
+// --- New session: start `claude` in a folder of your choice ----------------
+//
+// What `cd <folder>` + `claude --dangerously-skip-permissions` does by hand.
+// The folder comes from the recent list (folders of existing conversations),
+// the native Windows folder dialog (Browse…, opened by the agent), or a typed
+// / pasted path. The agent checks it and starts the terminal (/api/new); while
+// the list is pinned, the terminal is placed beside it, like Open.
+
+const $newBtn = document.getElementById('new-session');
+const $newOverlay = document.getElementById('new-overlay');
+const $newForm = document.getElementById('new-form');
+const $newFolder = document.getElementById('new-folder');
+const $newBrowse = document.getElementById('new-browse');
+const $newRecent = document.getElementById('new-recent');
+const $newName = document.getElementById('new-name');
+const $newSkip = document.getElementById('new-skipperms');
+const $newCmd = document.getElementById('new-cmd');
+const $newError = document.getElementById('new-error');
+const $newStart = document.getElementById('new-start');
+const $newCancel = document.getElementById('new-cancel');
+
+const NEW_RECENT_SHOWN = 8;
+const LAST_FOLDER_KEY = 'csm-new-last-folder';
+let newFolders = [];     // [{ path, lastActive, count }] from /api/folders
+let newShown = [];       // the recent folders currently listed
+let newActive = -1;      // keyboard highlight in that list
+let newPicking = false;  // the native folder dialog is open
+let newStarting = false; // a /api/new request is in flight
+let newKeyDoc = null;    // document the dialog's key handler is bound on
+
+function lastFolder() {
+  try { return localStorage.getItem(LAST_FOLDER_KEY) || ''; } catch (e) { return ''; }
+}
+function rememberFolder(p) {
+  try { localStorage.setItem(LAST_FOLDER_KEY, p); } catch (e) { /* private mode */ }
+}
+
+/** Explorer's "Copy as path" wraps the path in quotes. */
+function unquote(s) {
+  let v = String(s || '').trim();
+  if (v.length >= 2 && (v[0] === '"' || v[0] === "'") && v[v.length - 1] === v[0]) v = v.slice(1, -1).trim();
+  return v;
+}
+const folderKey = (p) => unquote(p).replace(/[\\/]+$/, '').toLowerCase();
+const folderBase = (p) => p.split(/[\\/]+/).filter(Boolean).pop() || p;
+
+function setNewError(msg) {
+  $newError.textContent = msg || '';
+  $newError.hidden = !msg;
+}
+
+function updateNewCmd() {
+  const name = $newName.value.replace(/["\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim();
+  const parts = ['claude'];
+  if ($newSkip.checked) parts.push('--dangerously-skip-permissions');
+  if (name) parts.push(`--name "${name}"`);
+  $newCmd.textContent = parts.join(' ');
+}
+
+function chooseRecent(f) {
+  $newFolder.value = f.path;
+  setNewError('');
+  renderNewRecent();
+  $newName.focus();
+}
+
+function setNewActive(i) {
+  newActive = newShown.length ? Math.max(-1, Math.min(i, newShown.length - 1)) : -1;
+  [...$newRecent.children].forEach((li, idx) => {
+    li.classList.toggle('active', idx === newActive);
+    if (idx === newActive) li.scrollIntoView({ block: 'nearest' });
+  });
+}
+
+/** Recent folders, filtered by what is typed (all of them once one is chosen). */
+function renderNewRecent() {
+  const q = folderKey($newFolder.value);
+  const picked = q && newFolders.find((f) => folderKey(f.path) === q);
+  const list = q && !picked ? newFolders.filter((f) => f.path.toLowerCase().includes(q)) : newFolders;
+  newShown = list.slice(0, NEW_RECENT_SHOWN);
+  newActive = -1;
+  if (!newShown.length) {
+    const empty = el('li', 'new-recent-empty', newFolders.length
+      ? 'No recent folder matches — Start uses the path as typed.'
+      : 'No folders yet — use Browse… or paste a path.');
+    $newRecent.replaceChildren(empty);
+    return;
+  }
+  $newRecent.replaceChildren(...newShown.map((f, i) => {
+    const li = el('li', 'new-recent-item');
+    li.setAttribute('role', 'option');
+    const isPicked = !!picked && f === picked;
+    li.setAttribute('aria-selected', String(isPicked));
+    if (isPicked) li.classList.add('picked');
+    li.title = f.path;
+    li.appendChild(icon('folder', 'new-recent-icon'));
+    const text = el('div', 'new-recent-text');
+    text.appendChild(el('span', 'new-recent-name', folderBase(f.path)));
+    text.appendChild(el('span', 'new-recent-path', f.path));
+    li.appendChild(text);
+    li.appendChild(el('span', 'new-recent-when', f.lastActive ? timeAgo(f.lastActive) : ''));
+    li.addEventListener('click', () => chooseRecent(f));
+    li.addEventListener('dblclick', () => { chooseRecent(f); $newForm.requestSubmit(); });
+    li.addEventListener('mousemove', () => { if (newActive !== i) setNewActive(i); });
+    return li;
+  }));
+}
+
+async function openNewDialog() {
+  if (!$newOverlay.hidden) { $newFolder.focus(); return; }
+  setNewError('');
+  $newFolder.value = '';
+  $newName.value = '';
+  $newSkip.checked = $skipperms.checked; // same default as Open
+  updateNewCmd();
+  renderNewRecent();
+  $newOverlay.hidden = false;
+  $newFolder.focus();
+  // The dialog may be in the floating window: listen where it is now.
+  newKeyDoc = $newOverlay.ownerDocument;
+  newKeyDoc.addEventListener('keydown', onNewKey);
+  try {
+    const r = await api('/api/folders');
+    newFolders = r.folders || [];
+    $newBrowse.hidden = !r.canBrowse;
+  } catch (err) {
+    newFolders = [];
+  }
+  if (!$newOverlay.hidden) renderNewRecent();
+}
+
+function closeNewDialog() {
+  $newOverlay.hidden = true;
+  if (newKeyDoc) newKeyDoc.removeEventListener('keydown', onNewKey);
+  newKeyDoc = null;
+}
+
+function onNewKey(e) {
+  if (e.key === 'Escape') { e.preventDefault(); closeNewDialog(); }
+}
+
+$newFolder.addEventListener('input', () => { setNewError(''); renderNewRecent(); });
+$newFolder.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); setNewActive(newActive + 1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); setNewActive(newActive - 1); }
+  else if (e.key === 'Enter' && newActive >= 0 && newShown[newActive]) {
+    e.preventDefault(); // Enter on a highlighted folder picks it; otherwise it submits
+    chooseRecent(newShown[newActive]);
+  }
+});
+$newName.addEventListener('input', updateNewCmd);
+$newSkip.addEventListener('change', updateNewCmd);
+$newCancel.addEventListener('click', closeNewDialog);
+$newOverlay.addEventListener('click', (e) => { if (e.target === $newOverlay) closeNewDialog(); });
+
+$newBrowse.addEventListener('click', async () => {
+  if (newPicking) return;
+  newPicking = true;
+  $newBrowse.disabled = true;
+  setNewError('');
+  try {
+    const initial = unquote($newFolder.value) || lastFolder();
+    const r = await api('/api/folders/pick', { method: 'POST', body: JSON.stringify({ initial }) });
+    if (r.result === 'picked' && r.path) {
+      $newFolder.value = r.path;
+      rememberFolder(r.path);
+      renderNewRecent();
+      $newName.focus();
+    } else if (r.result === 'busy') {
+      setNewError('A folder dialog is already open — finish or cancel that one first.');
+    } else if (r.result === 'error') {
+      setNewError(`Couldn't open the folder dialog: ${r.error || 'unknown error'}`);
+    } else if (r.result === 'unsupported') {
+      setNewError('The folder dialog works on Windows only — paste the path instead.');
+    }
+  } catch (err) {
+    setNewError(`Couldn't open the folder dialog: ${err.message}`);
+  } finally {
+    newPicking = false;
+    $newBrowse.disabled = false;
+    // Back from the native dialog: give the page its focus again.
+    try { $newOverlay.ownerDocument.defaultView.focus(); } catch (e) { /* ignore */ }
+  }
+});
+
+$newForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (newStarting) return; // one terminal per click
+  const cwd = unquote($newFolder.value);
+  if (!cwd) {
+    setNewError('Choose a folder first — a recent one, Browse…, or paste a path.');
+    $newFolder.focus();
+    return;
+  }
+  newStarting = true;
+  $newStart.disabled = true;
+  setNewError('');
+  try {
+    const r = await api('/api/new', {
+      method: 'POST',
+      body: JSON.stringify({ cwd, name: $newName.value, skipPermissions: $newSkip.checked, place: !!pipWin }),
+    });
+    rememberFolder(r.cwd);
+    closeNewDialog();
+    const what = r.name ? `“${r.name}”` : 'New session';
+    const where = r.placing ? ' — it will appear beside the list' : '';
+    toast(`${what} is starting in ${folderBase(r.cwd)}${where}. It joins the list after your first message.`, 'ok');
+  } catch (err) {
+    setNewError(err.message);
+  } finally {
+    newStarting = false;
+    $newStart.disabled = false;
+  }
+});
+
+$newBtn.addEventListener('click', openNewDialog);
+
 // --- floating Sessions window ("Pin to side") -----------------------------
 //
 // The Sessions list moves into an always-on-top Document Picture-in-Picture
@@ -3676,30 +3895,42 @@ async function pinSessions() {
   // <use href="#i-…"> resolves inside its own document: give it the sprite.
   doc.body.appendChild(document.querySelector('body > svg').cloneNode(true));
 
-  // Compact header: search, the two open options, rescan, unpin.
+  // Compact two-row header:
+  //   [ search ……………………………… ] [ + New session ]
+  //   [x] skip perms  [ ] fork                [rescan] [unpin]
   const bar = doc.createElement('header');
   bar.className = 'topbar pip-topbar';
   doc.body.appendChild(bar);
-  pipMove($search.closest('.search-wrap'), bar);
-  const actions = doc.createElement('div');
-  actions.className = 'actions';
-  bar.appendChild(actions);
-  pipMove($skipperms.closest('label'), actions);
-  pipMove($fork.closest('label'), actions);
-  pipMove($refresh, actions);
+  const mainRow = doc.createElement('div');
+  mainRow.className = 'pip-row pip-row-main';
+  const toolRow = doc.createElement('div');
+  toolRow.className = 'pip-row pip-row-tools';
+  const opts = doc.createElement('div');
+  opts.className = 'pip-opts';
+  const btns = doc.createElement('div');
+  btns.className = 'pip-btns';
+  toolRow.append(opts, btns);
+  bar.append(mainRow, toolRow);
+  pipMove($search.closest('.search-wrap'), mainRow);
+  pipMove($newBtn, mainRow);
+  pipMove($skipperms.closest('label'), opts);
+  pipMove($fork.closest('label'), opts);
+  pipMove($refresh, btns);
   const unpin = doc.createElement('button');
   unpin.className = 'icon-btn';
   unpin.title = 'Bring the Sessions list back into the tab';
   unpin.setAttribute('aria-label', unpin.title);
   unpin.appendChild(icon('pin-off'));
   unpin.addEventListener('click', () => w.close());
-  actions.appendChild(unpin);
+  btns.appendChild(unpin);
 
-  // The list itself, plus the toast and the delete dialog it uses.
+  // The list itself, plus the toast and the dialogs it uses.
+  closeNewDialog(); // its key handler is bound to the document it was in
   pipMove($views.sessions, doc.body);
   $views.sessions.hidden = false;
   pipMove($toast, doc.body);
   pipMove($modalOverlay, doc.body);
+  pipMove($newOverlay, doc.body);
 
   pipPlaceholder = buildPipPlaceholder();
   pipMoved.find((m) => m.node === $views.sessions).mark.after(pipPlaceholder);
@@ -3731,6 +3962,7 @@ async function pinSessions() {
 function unpinSessions() {
   if (!pipWin) return;
   pipWin = null;
+  closeNewDialog();
   if (pipThemeObserver) pipThemeObserver.disconnect();
   if (pipResizeObserver) pipResizeObserver.disconnect();
   pipThemeObserver = null;

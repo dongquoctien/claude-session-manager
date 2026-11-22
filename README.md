@@ -121,10 +121,25 @@ window (or click the pin again) to bring the list back into the tab. The
 layout is responsive, so the same list also works in a narrow tab or on a
 phone.
 
+**New session** (the `+` button, also in the pinned window): start a fresh
+`claude` in any folder — no more `cd` + typing the command by hand. Pick one
+of your recent folders (every folder you've had a conversation in, newest
+first; type to filter, arrow keys + Enter), click **Browse…** for the Windows
+folder dialog (it opens where you were last time), or paste a path (Explorer's
+"Copy as path" quotes are fine). Optionally give it a **name** (`claude
+--name`) so it shows up named in the list and in `/resume`. **Skip permission
+prompts** follows the header toggle (`--dangerously-skip-permissions`). While
+the list is pinned, the new terminal is placed beside it. The conversation
+appears in the list after its first message (Claude Code writes the
+transcript then); until then it already counts under **Running**.
+
 **Security:** the agent binds `127.0.0.1` only, requires a per-run token
 (embedded in the URL it prints/opens), rejects foreign `Host` headers
 (anti DNS-rebind), and `POST /api/open` only accepts a sessionId already
 present in the scan — it never takes an arbitrary path or command.
+`POST /api/new` is the one route that takes a path: it must be an existing
+folder given in full, and the program is always `claude` (with an id csm
+generates, plus the optional name and the skip-permissions flag).
 
 ## Monitor (tokens, cost & activity)
 
@@ -246,6 +261,9 @@ never becomes a title.
   that owns that process's console, picks the tab, restores and focuses it —
   a short built-in PowerShell script, nothing to install. If Windows refuses
   to hand over focus, the window's taskbar button flashes instead.
+- A new session is started as `claude --session-id <id>` with an id csm picks
+  up front, so it is recognised the moment it registers as running (and can be
+  placed beside the pinned list) — before any transcript exists.
 
 ## License
 

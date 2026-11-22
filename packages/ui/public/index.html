@@ -129,6 +129,17 @@
       <g id="i-check" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M20 6 9 17l-5-5"/>
       </g>
+      <!-- Lucide "plus" / "folder-plus" / "folder-open": New session. -->
+      <g id="i-plus" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 12h14"/><path d="M12 5v14"/>
+      </g>
+      <g id="i-folder-plus" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 10v6"/><path d="M9 13h6"/>
+        <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
+      </g>
+      <g id="i-folder-open" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>
+      </g>
     </defs>
   </svg>
 
@@ -143,6 +154,14 @@
       <kbd>/</kbd>
     </div>
     <div class="actions">
+      <!-- Start a NEW conversation in a folder you choose (recent folders,
+           the Windows folder dialog, or a pasted path). -->
+      <button id="new-session" class="btn-new" type="button"
+              title="Start a new Claude session in a folder you choose"
+              aria-label="New session">
+        <svg class="icon" viewBox="0 0 24 24"><use href="#i-plus"/></svg>
+        <span class="btn-new-label">New session</span>
+      </button>
       <span id="live-pill" class="live-pill" title="Realtime connection status">
         <span class="live-dot"></span><span id="live-text">offline</span>
       </span>
@@ -383,6 +402,44 @@
         </button>
       </div>
     </div>
+  </div>
+
+  <!-- New session: folder (recent / Browse… / typed), optional name. -->
+  <div id="new-overlay" class="modal-overlay" hidden>
+    <form id="new-form" class="modal modal-new" role="dialog" aria-modal="true"
+          aria-labelledby="new-title" autocomplete="off" novalidate>
+      <div class="modal-head">
+        <svg class="icon modal-icon modal-icon-accent" viewBox="0 0 24 24"><use href="#i-folder-plus"/></svg>
+        <h2 id="new-title">New session</h2>
+      </div>
+      <label class="field-label" for="new-folder">Folder</label>
+      <div class="new-folder-row">
+        <input id="new-folder" class="field-input mono" type="text" spellcheck="false"
+               placeholder="Pick below, Browse…, or paste a path" />
+        <button type="button" id="new-browse" class="btn btn-ghost" hidden
+                title="Choose a folder with the Windows folder dialog">
+          <svg class="icon" viewBox="0 0 24 24"><use href="#i-folder-open"/></svg>
+          Browse…
+        </button>
+      </div>
+      <div class="field-label new-recent-head">Recent folders</div>
+      <ul id="new-recent" class="new-recent" role="listbox" aria-label="Recent folders"></ul>
+      <label class="field-label" for="new-name">Name <span class="field-opt">(optional)</span></label>
+      <input id="new-name" class="field-input" type="text" maxlength="80" spellcheck="false"
+             placeholder="Shown in the list and in /resume" />
+      <label class="toggle new-skip" title="claude --dangerously-skip-permissions">
+        <input id="new-skipperms" type="checkbox" checked /> Skip permission prompts
+      </label>
+      <div class="new-cmd"><span class="new-cmd-label">Runs</span> <code id="new-cmd"></code></div>
+      <div id="new-error" class="new-error" role="alert" hidden></div>
+      <div class="modal-actions">
+        <button type="button" id="new-cancel" class="btn btn-ghost">Cancel</button>
+        <button type="submit" id="new-start" class="btn btn-primary">
+          <svg class="icon" viewBox="0 0 24 24"><use href="#i-play"/></svg>
+          Start
+        </button>
+      </div>
+    </form>
   </div>
 
   <!-- uPlot: tiny (~40KB) canvas charting, no framework. Loaded from CDN; the

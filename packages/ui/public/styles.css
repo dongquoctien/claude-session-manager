@@ -781,6 +781,111 @@ html, body {
 .btn-ghost:hover { background: var(--bg-row-hover); }
 .btn-danger { background: var(--err); border-color: var(--err); color: var(--on-accent); }
 .btn-danger:hover { filter: brightness(1.08); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn-primary:hover { filter: brightness(1.08); }
+.btn:disabled { opacity: 0.6; cursor: default; filter: none; }
+
+/* --- New session: header button + dialog --- */
+.btn-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  color: var(--on-accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.btn-new:hover { filter: brightness(1.08); }
+.btn-new .icon { width: 16px; height: 16px; }
+
+.modal-new {
+  width: min(560px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+.modal-icon-accent { color: var(--accent); }
+.field-label {
+  display: block;
+  margin: 14px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.modal-head + .field-label { margin-top: 0; }
+.field-opt { font-weight: 400; }
+.field-input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+.field-input:focus { border-color: var(--accent); }
+.field-input.mono { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+.new-folder-row { display: flex; gap: 8px; }
+.new-folder-row .field-input { flex: 1 1 auto; }
+.new-folder-row .btn { flex: none; padding: 7px 12px; }
+.new-folder-row .btn[hidden] { display: none; }
+.new-recent {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: 264px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.new-recent-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.new-recent-item.active { background: var(--bg-row-hover); }
+.new-recent-item.picked { background: var(--bg-row); box-shadow: inset 2px 0 0 var(--accent); }
+.new-recent-icon { width: 16px; height: 16px; color: var(--accent); }
+.new-recent-text { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; line-height: 1.35; }
+.new-recent-name,
+.new-recent-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.new-recent-name { font-weight: 600; }
+.new-recent-path { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; color: var(--text-dim); }
+.new-recent-when { flex: none; font-size: 11.5px; color: var(--text-dim); }
+.new-recent-empty { padding: 10px; font-size: 12.5px; color: var(--text-dim); }
+.new-skip { margin-top: 14px; width: fit-content; }
+.new-cmd { margin-top: 10px; font-size: 12px; color: var(--text-dim); overflow-wrap: anywhere; }
+.new-cmd code {
+  padding: 1px 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  font-family: ui-monospace, Consolas, monospace;
+}
+.new-error {
+  margin-top: 12px;
+  padding: 8px 10px;
+  background: rgba(224, 106, 90, 0.12);
+  border: 1px solid var(--err);
+  border-radius: 8px;
+  color: var(--err);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.new-error[hidden] { display: none; }
 
 /* ===================== monitor view ===================== */
 
@@ -1792,6 +1897,12 @@ html, body {
   .row-del { margin-left: 0; padding-left: 6px; }
 
   .toast { bottom: 12px; max-width: calc(100vw - 24px); }
+
+  /* New session: icon-only button; the dialog uses the full width. */
+  .btn-new { width: 34px; padding: 0; justify-content: center; }
+  .btn-new-label { display: none; }
+  .modal-new { padding: 16px; }
+  .new-recent { max-height: 220px; }
 }
 /* Touch screens have no hover: show the per-row controls. */
 @media (hover: none) {
@@ -1802,9 +1913,36 @@ html, body {
 /* --- floating Sessions window (Document Picture-in-Picture, body.pip) ---
    The list moves into a ~480px always-on-top window pinned to a screen edge
    (the ≤600px rules above do the layout); its own header holds the search,
-   the two open options, rescan and unpin. */
-.pip-topbar .search-wrap { order: 0; flex: 1 1 100%; max-width: none; }
-.pip-topbar .actions { margin-left: auto; }
+   New session, the two open options, rescan and unpin. */
+.pip-topbar {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px 12px 8px;
+}
+.pip-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pip-row-main .search-wrap { order: 0; flex: 1 1 auto; min-width: 0; max-width: none; }
+/* New session sits next to the search, same height, labelled while it fits. */
+body.pip .pip-row-main .btn-new {
+  flex: none;
+  align-self: stretch; /* exactly as tall as the search box */
+  width: auto;
+  height: auto;
+  padding: 0 14px;
+  border-radius: var(--radius);
+}
+body.pip .pip-row-main .btn-new-label { display: inline; }
+.pip-row-tools { justify-content: space-between; }
+.pip-opts { display: flex; align-items: center; gap: 14px; padding-left: 2px; }
+.pip-btns { display: flex; align-items: center; gap: 6px; }
+.pip-btns #refresh,
+.pip-btns .icon-btn { width: 30px; height: 30px; border-radius: 7px; }
+.pip-btns .icon { width: 15px; height: 15px; }
+@media (max-width: 380px) {
+  body.pip .pip-row-main .btn-new { width: 36px; padding: 0; justify-content: center; }
+  body.pip .pip-row-main .btn-new-label { display: none; }
+}
 
 /* The page while the list floats: a placeholder where the list was. */
 .pip-placeholder { display: flex; justify-content: center; padding: 72px 18px; }

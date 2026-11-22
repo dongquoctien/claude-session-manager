@@ -2,6 +2,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import {
   scanSessions,
@@ -11,6 +12,10 @@ import {
   filterSessions,
   findSession,
   openSession,
+  startNewSession,
+  recentFolders,
+  resolveFolder,
+  pickFolder,
   dockPipWindow,
   toggleFavorite,
   deleteSession,
@@ -46,6 +51,13 @@ const MIME = {
  *    it never takes a path or command from the client. When the conversation
  *    is already running, the PID to bring forward comes from Claude Code's
  *    own process registry, never from the request
+ *  - /api/new is the one route that takes a path: the folder to start a new
+ *    conversation in. It must be an existing directory given as a full path;
+ *    the program is always `claude`, its session id is generated here, and
+ *    the client only adds an optional display name (control characters and
+ *    quotes stripped, passed as a single argument — never through a shell)
+ *    and the skip-permissions flag. /api/folders/pick only opens the native
+ *    folder dialog; the path it returns still goes through /api/new's checks
  *
  * @param {Object} [opts]
  * @param {string} [opts.token]  override token (testing)
@@ -168,6 +180,29 @@ export function createServer(opts = {}) {
       if (req.method === 'POST' && url.pathname === '/api/open') {
         const body = await readJson(req);
         return handleOpen(res, body, getSessions);
+      }
+
+      if (req.method === 'GET' && url.pathname === '/api/folders') {
+        // Folders already worked in, newest first — the New session dialog's
+        // quick picks. canBrowse: the native folder dialog is available.
+        const folders = recentFolders(await getSessions(), { limit: 100 });
+        return send(res, 200, { folders, canBrowse: process.platform === 'win32' });
+      }
+
+      if (req.method === 'POST' && url.pathname === '/api/folders/pick') {
+        // Native "choose a folder" dialog (Windows); waits for the user.
+        // Opens in `initial` when that is a real folder, else the home folder.
+        const body = await readJson(req);
+        const start = resolveFolder(body && body.initial);
+        return send(res, 200, await pickFolder({
+          title: 'Choose a folder for the new Claude session',
+          initial: start.ok ? start.path : os.homedir(),
+        }));
+      }
+
+      if (req.method === 'POST' && url.pathname === '/api/new') {
+        const body = await readJson(req);
+        return handleNew(res, body);
       }
 
       if (req.method === 'POST' && url.pathname === '/api/pip/dock') {
@@ -348,6 +383,41 @@ async function handleOpen(res, body, getSessions) {
     ...common,
     terminal: r.terminal || null,
     focus: r.focus || null,
+    placing: !!r.placing,
+  });
+}
+
+/**
+ * Start a new conversation in a folder of the user's choice (see the security
+ * notes on createServer for what is accepted).
+ */
+async function handleNew(res, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  let r;
+  try {
+    r = await startNewSession({
+      cwd: b.cwd,
+      name: b.name,
+      // Default ON, like Open; the UI sends false to opt out.
+      skipPermissions: b.skipPermissions !== undefined ? !!b.skipPermissions : true,
+      terminal: typeof b.terminal === 'string' ? b.terminal : 'auto',
+      dryRun: !!b.dryRun,
+      place: !!b.place,
+    });
+  } catch (err) {
+    if (err && err.code === 'BAD_FOLDER') return send(res, 400, { error: err.message });
+    throw err;
+  }
+  if (r.dryRun) {
+    return send(res, 200, { dryRun: true, action: r.action, id: r.id, cwd: r.cwd, name: r.name, terminal: r.terminal, cmd: r.cmd, args: r.args });
+  }
+  return send(res, 200, {
+    ok: true,
+    action: r.action,
+    id: r.id,
+    cwd: r.cwd,
+    name: r.name,
+    terminal: r.terminal || null,
     placing: !!r.placing,
   });
 }

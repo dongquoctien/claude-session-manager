@@ -110,6 +110,57 @@ test('open with dryRun returns built command, does not spawn', async () => {
   assert.ok(data.args.includes('--resume'));
 });
 
+// --- New session -------------------------------------------------------------
+
+test('folders: recent folders of the scanned conversations', async () => {
+  const r = await req('/api/folders', { token: TOKEN });
+  assert.equal(r.status, 200);
+  const data = await r.json();
+  assert.deepEqual(data.folders.map((f) => f.path.toLowerCase()), [os.tmpdir().replace(/[\\/]+$/, '').toLowerCase()]);
+  assert.equal(data.canBrowse, process.platform === 'win32');
+});
+
+test('new with dryRun: claude gets a fresh --session-id in the chosen folder, nothing spawns', async () => {
+  const r = await req('/api/new', {
+    method: 'POST',
+    token: TOKEN,
+    body: JSON.stringify({ cwd: `"${os.tmpdir()}"`, name: 'Try it', dryRun: true, terminal: 'wt' }),
+  });
+  assert.equal(r.status, 200);
+  const data = await r.json();
+  assert.equal(data.dryRun, true);
+  assert.match(data.id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(data.cwd, path.resolve(os.tmpdir()));
+  const sep = data.args.indexOf('--');
+  assert.deepEqual(data.args.slice(sep + 1), [
+    'claude', '--session-id', data.id, '--name', 'Try it', '--dangerously-skip-permissions',
+  ]);
+});
+
+test('new: skipPermissions false opts out', async () => {
+  const r = await req('/api/new', {
+    method: 'POST', token: TOKEN,
+    body: JSON.stringify({ cwd: os.tmpdir(), skipPermissions: false, dryRun: true, terminal: 'wt' }),
+  });
+  const data = await r.json();
+  assert.ok(!data.args.includes('--dangerously-skip-permissions'));
+  assert.ok(!data.args.includes('--name'));
+});
+
+test('new: a missing, relative or empty folder is a 400 with a reason', async () => {
+  for (const cwd of [path.join(os.tmpdir(), 'csm-no-such-folder-xyz'), 'relative\\dir', '', 42]) {
+    const r = await req('/api/new', { method: 'POST', token: TOKEN, body: JSON.stringify({ cwd, dryRun: true }) });
+    assert.equal(r.status, 400, String(cwd));
+    assert.ok((await r.json()).error);
+  }
+});
+
+test('new and folders require the token (401)', async () => {
+  assert.equal((await req('/api/new', { method: 'POST', body: JSON.stringify({ cwd: os.tmpdir(), dryRun: true }) })).status, 401);
+  assert.equal((await req('/api/folders')).status, 401);
+  assert.equal((await req('/api/folders/pick', { method: 'POST', body: '{}' })).status, 401);
+});
+
 test('open with unknown id returns 404', async () => {
   const r = await req('/api/open', {
     method: 'POST',
