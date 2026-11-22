@@ -17,7 +17,9 @@ bundler — keep it that way; it runs directly on Node).
 ```
 packages/
   core/     @csm/core  — scan/parse .jsonl, titles, launcher, favorites, trash,
-                         live sessions + switch-to-window (open.js)
+                         live sessions + switch-to-window (open.js),
+                         new session in a chosen folder (newSession.js,
+                         folderPicker.js)
   cli/      @csm/cli   — `csm` bin (list/search/open/fav/rm/restore/trash)
   agent/    @csm/agent — zero-dep node:http server + static web UI host
   ui/       @csm/ui    — static HTML/JS/CSS (inline Lucide SVG icons)
@@ -100,6 +102,11 @@ npm run desktop:dist     # build Windows .exe installer
 
 - **`wt` needs `--`:** `wt -d <cwd> -- claude --resume <id>`. Without `--`, wt
   parses claude's flags as its own and claude launches without `--resume`.
+- **wt splits on `;` even after `--`** (a `;` starts another command/tab).
+  Every wt arg goes through `wtEscape` (`;` → `\;`); verified that `x\;y`
+  arrives as `x;y` and a start folder `semi;colon` opens correctly. A `"`
+  does NOT survive wt's re-quoting (`quo"te` → `quote`), so session names
+  are stripped of quotes (`cleanSessionName`).
 - **`claude --resume` needs the FULL UUID**, not a prefix/title. The CLI/agent
   resolve prefix → UUID before launching; never pass a prefix to claude.
 - **wt.exe detection:** it's a 0-byte App Execution Alias under WindowsApps, so
@@ -115,6 +122,37 @@ npm run desktop:dist     # build Windows .exe installer
   non-Windows, error) it returns `running` and spawns NOTHING — never a second
   `claude` on one transcript. Live state is read fresh at open time, not from
   the 3s scan cache.
+
+## New session in a chosen folder (`core/newSession.js`, `/api/new`)
+
+The web UI's `+` (also in the pinned window) starts a NEW conversation — what
+`cd <folder>` + `claude --dangerously-skip-permissions` does by hand. Verified:
+- **csm picks the id: `claude --session-id <uuid> [--name <name>]`.** The
+  registry entry then carries that `sessionId` (and the name, with
+  `nameSource: "user"`) as soon as claude has started, so placement beside the
+  pinned list (`placeWhenLive`) and the Running count work before any
+  transcript exists. **No `.jsonl` is written until the first message** — the
+  row appears in the list only then.
+- **Registration can be slow:** measured 27s from process start to the
+  registry file once (some configured MCP servers were timing out), ~0.7s
+  normally. `placeWhenLive` therefore waits up to 90s (one tiny registry read
+  per 400ms).
+- Folder input: full path only (Windows: drive or UNC — a bare `\x` would mean
+  "the agent's drive"), must exist and be a directory; `"…"` from Explorer's
+  "Copy as path" and a leading `~` are accepted. Recent folders = distinct
+  `cwd` of scanned conversations whose folder still exists (case-insensitive
+  on Windows), newest first.
+- **Folder dialog (`core/folderPicker.js`, `/api/folders/pick`):** a browser
+  can't return a real folder path, so the agent shows the Windows
+  IFileOpenDialog (`FOS_PICKFOLDERS`) via PowerShell + Add-Type, on its own
+  STA thread. From the background agent it opens **in front, focused and
+  topmost** (also above the pinned PiP window) because it is owned by an
+  invisible TopMost WinForms form that is first pulled to the foreground
+  (same AttachThreadInput / Alt-tap trick as focus.js). The dialog opens with
+  its corner at the owner, so a WinForms timer (runs inside the modal loop)
+  centers it on the work area of the monitor under the mouse. Result is
+  printed as base64(UTF-8 JSON) — a Vietnamese folder name survives the
+  console code page. One dialog at a time (`busy`); killed after 10 min.
 
 ## Switching to a running session (Windows, `core/focus.js`)
 
@@ -190,7 +228,12 @@ fallback on `EXDEV`.
 Binds `127.0.0.1` only; per-run timing-safe token (header or `?token=`); Host
 allowlist (anti DNS-rebind); static path-traversal guard. Mutating endpoints
 (`/api/open`, `/api/delete`, `/api/restore`) only accept a sessionId present in
-the current scan — never an arbitrary path or command.
+the current scan — never an arbitrary path or command. The one exception is
+`/api/new`: it takes a folder, which must be an existing directory given as a
+full path; the program is always `claude`, the session id is generated
+server-side, and the client only adds an optional name (control chars and
+quotes stripped, one argv entry, never through a shell) and the
+skip-permissions flag.
 
 ## Web UI build/serve notes
 

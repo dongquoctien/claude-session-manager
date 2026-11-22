@@ -4,7 +4,11 @@ import os from 'node:os';
 /**
  * @typedef {Object} LaunchOptions
  * @property {string} cwd            working directory to open the terminal in
- * @property {string} sessionId      conversation to resume
+ * @property {string} sessionId      conversation to resume — or, with
+ *           `newSession`, the id the new conversation is created with
+ * @property {boolean} [newSession]  start a NEW conversation (`--session-id`)
+ *           instead of resuming one
+ * @property {string} [name]         display name for a new conversation (`--name`)
  * @property {boolean} [fork]        use --fork-session (new id, keep history)
  * @property {boolean} [skipPermissions] add --dangerously-skip-permissions
  * @property {'wt'|'powershell'|'macos'|'linux'|'auto'} [terminal='auto']
@@ -51,6 +55,35 @@ function pickTerminal(pref) {
 }
 
 /**
+ * claude's own arguments.
+ *  - resume:      `--resume <id> [--fork-session]`
+ *  - new session: `--session-id <id> [--name <name>]` — csm picks the id up
+ *    front, so it can find the new process in the registry right away (to
+ *    place its window, and to show it as running) before any transcript exists.
+ * @param {Pick<LaunchOptions, 'sessionId'|'newSession'|'name'|'fork'|'skipPermissions'>} opts
+ * @returns {string[]}
+ */
+export function claudeArgsFor({ sessionId, newSession = false, name, fork = false, skipPermissions = false }) {
+  const args = newSession ? ['--session-id', sessionId] : ['--resume', sessionId];
+  if (newSession && name) args.push('--name', name);
+  if (fork && !newSession) args.push('--fork-session');
+  if (skipPermissions) args.push('--dangerously-skip-permissions');
+  return args;
+}
+
+/**
+ * Escape `;` for wt.exe. wt splits its WHOLE command line on `;` into
+ * separate commands (new tabs) — even after `--` — so a `;` in a folder or a
+ * session name would start a second command. `\;` is wt's escape for a
+ * literal one (verified: `x\;y` reaches the program as `x;y`, and a start
+ * folder `semi;colon` opens correctly).
+ * @param {string} s @returns {string}
+ */
+export function wtEscape(s) {
+  return String(s).replace(/;/g, '\\;');
+}
+
+/**
  * Build the argv for the chosen terminal. Returned as { cmd, args } so callers
  * can either spawn it or print it (dry-run) without re-deriving anything.
  *
@@ -60,16 +93,11 @@ function pickTerminal(pref) {
 export function buildLaunch(opts) {
   const {
     cwd,
-    sessionId,
-    fork = false,
-    skipPermissions = false,
     terminal = 'auto',
     claudeBin = 'claude',
   } = opts;
 
-  const claudeArgs = ['--resume', sessionId];
-  if (fork) claudeArgs.push('--fork-session');
-  if (skipPermissions) claudeArgs.push('--dangerously-skip-permissions');
+  const claudeArgs = claudeArgsFor(opts);
 
   const kind = pickTerminal(terminal);
 
@@ -85,7 +113,7 @@ export function buildLaunch(opts) {
     const wt = findWindowsTerminal() || 'wt.exe';
     return {
       cmd: wt,
-      args: ['-d', cwd, '--', claudeBin, ...claudeArgs],
+      args: ['-d', cwd, '--', claudeBin, ...claudeArgs].map(wtEscape),
       terminal: 'wt',
     };
   }
@@ -188,7 +216,8 @@ export function launchEnv(base = process.env) {
 }
 
 /**
- * Launch a terminal that resumes the given conversation. The new terminal is
+ * Launch a terminal that resumes the given conversation — or, with
+ * `newSession`, starts a new one under the given id. The new terminal is
  * fully detached so it keeps running after csm exits.
  *
  * @param {LaunchOptions} opts

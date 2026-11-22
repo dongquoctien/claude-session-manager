@@ -1,6 +1,31 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLaunch, launchEnv } from '../src/launcher.js';
+import { buildLaunch, launchEnv, claudeArgsFor, wtEscape } from '../src/launcher.js';
+
+test('claudeArgsFor: resume vs new session', () => {
+  assert.deepEqual(claudeArgsFor({ sessionId: 'id' }), ['--resume', 'id']);
+  assert.deepEqual(
+    claudeArgsFor({ sessionId: 'id', newSession: true, name: 'My task', skipPermissions: true }),
+    ['--session-id', 'id', '--name', 'My task', '--dangerously-skip-permissions'],
+  );
+  // --fork-session only makes sense when resuming; --name only for a new one.
+  assert.deepEqual(claudeArgsFor({ sessionId: 'id', newSession: true, fork: true }), ['--session-id', 'id']);
+  assert.deepEqual(claudeArgsFor({ sessionId: 'id', name: 'x' }), ['--resume', 'id']);
+});
+
+test('wt build: a ";" (folder or name) is escaped so wt does not split the command', () => {
+  // wt treats an unescaped ; as "start another command", even after --.
+  const { args } = buildLaunch({
+    cwd: 'D:\\a;b', sessionId: 'id', newSession: true, name: 'x; y', terminal: 'wt',
+  });
+  assert.deepEqual(args, ['-d', 'D:\\a\\;b', '--', 'claude', '--session-id', 'id', '--name', 'x\\; y']);
+  assert.equal(wtEscape('no semicolon'), 'no semicolon');
+});
+
+test('powershell build: a new session keeps its name as one quoted argument', () => {
+  const { args } = buildLaunch({ cwd: 'C:\\x', sessionId: 'id', newSession: true, name: "it's $env:X", terminal: 'powershell' });
+  assert.ok(args[3].includes(`'--name' 'it''s $env:X'`), args[3]);
+});
 
 test('wt build: argv shape with -- separator before claude', () => {
   const { cmd, args, terminal } = buildLaunch({

@@ -25,8 +25,11 @@ import { launch, buildLaunch } from './launcher.js';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * After a launch, wait for the new `claude` to register (~2s; up to
- * `timeoutMs`), then move its window beside the floating Sessions window.
+ * After a launch, wait for the new `claude` to register, then move its window
+ * beside the floating Sessions window. Registration usually takes ~2s, but
+ * claude writes its registry file only once startup is done — measured 27s
+ * while some configured MCP servers were timing out — hence the long default
+ * wait (polling the registry costs ~0.1ms per read).
  * Resolves with the focus result, or `{ result: 'timeout' }`. Never throws.
  *
  * @param {{ id: string, title: string }} session
@@ -38,7 +41,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * @returns {Promise<import('./focus.js').FocusResult|{ result: 'timeout' }>}
  */
 export async function placeWhenLive(session, deps = {}, opts = {}) {
-  const timeoutMs = opts.timeoutMs ?? 20_000;
+  const timeoutMs = opts.timeoutMs ?? 90_000;
   const intervalMs = opts.intervalMs ?? 400;
   const now = opts.now || Date.now;
   const started = now();
