@@ -373,6 +373,7 @@ function updateRunningChip() {
   const n = liveMap ? Object.keys(liveMap).length : lastSessions.filter((s) => s.live).length;
   $runningCount.textContent = String(n);
   $runningCount.hidden = n === 0;
+  updateFab();
 }
 
 function onLive(map) {
@@ -695,8 +696,11 @@ async function doOpen(s) {
     if (r.action === 'focused') toast(`Switched to ${name} — it was already open`, 'ok');
     else if (r.action === 'flashed') toast(`${name} is already open. Windows kept the focus here, so its taskbar button is flashing.`, 'warn');
     else if (r.action === 'running') toast(alreadyOpenMessage(name, r), 'warn');
-    else if (r.placing) toast(`Opening ${name} — it will appear beside the list`, 'ok');
+    else if (r.placing) toast(`Opening ${name} — ${placedWhere()}`, 'ok');
     else toast(`Opening ${name} via ${r.terminal}`, 'ok');
+    // Floating list: done here — back to the round button, terminal in front.
+    // (Warnings stay up: their toast must be seen.)
+    if (r.action === 'focused' || r.action === 'launched') collapsePipAfterAction();
   } catch (err) {
     toast(`Failed to open: ${err.message}`, 'err');
   } finally {
@@ -904,6 +908,8 @@ function onListKeydown(e) {
       clearSelection(); // first Escape drops the selection
     } else if (selectMode) {
       setSelectMode(false); // next Escape leaves select mode
+    } else if (pipMode === 'panel' && !$search.value) {
+      setPipMode('fab'); // floating list: Escape folds it back into the button
     } else {
       $search.value = '';
       refresh();
@@ -3824,8 +3830,9 @@ $newForm.addEventListener('submit', async (e) => {
     rememberFolder(r.cwd);
     closeNewDialog();
     const what = r.name ? `“${r.name}”` : 'New session';
-    const where = r.placing ? ' — it will appear beside the list' : '';
+    const where = r.placing ? ` — ${placedWhere()}` : '';
     toast(`${what} is starting in ${folderBase(r.cwd)}${where}. It joins the list after your first message.`, 'ok');
+    collapsePipAfterAction();
   } catch (err) {
     setNewError(err.message);
   } finally {
@@ -3896,6 +3903,88 @@ function setPinButton(pinned) {
     : 'Pin the Sessions list to the side of the screen — always on top; terminals open beside it';
 }
 
+// --- pinned window layouts: docked / floating button ------------------------
+//
+// The agent lays the window out natively (core/dock.js): "docked" spans a
+// screen edge; "fab" cuts it down to a round button in the bottom corner;
+// "panel" is the open list above that corner with a round close button below.
+// The page only matches those shapes (CSS: body.pip-float + the window width).
+
+/** Sizes shared with the agent's window shapes (CSS px). */
+const FLOAT = { fab: 56, gap: 12, margin: 20, panel: 440, radius: 14 };
+const PIP_LAYOUT_KEY = 'csm-pip-layout'; // 'float' | 'dock' — the last one used
+let pipMode = null;      // 'fab' | 'panel' | 'docked' | null (not laid out natively)
+let pipModeBusy = false;
+let pipFab = null;       // the round button, in the floating window's document
+
+/** This window's rect in screen px — tells two pinned csm windows apart. */
+function pipHintRect() {
+  if (!pipWin) return null;
+  const k = pipWin.devicePixelRatio || 1;
+  return {
+    x: Math.round(pipWin.screenX * k),
+    y: Math.round(pipWin.screenY * k),
+    w: Math.round(pipWin.outerWidth * k),
+    h: Math.round(pipWin.outerHeight * k),
+  };
+}
+
+/**
+ * Switch the pinned window's layout. Resolves true when the agent did it.
+ * @param {'fab'|'panel'|'docked'} mode
+ * @param {{ settle?: boolean }} [opts]  settle: the window has just opened
+ */
+async function setPipMode(mode, { settle = false } = {}) {
+  if (!pipWin || pipModeBusy) return false;
+  pipModeBusy = true;
+  const body = pipWin.document.body;
+  body.classList.add('pip-busy');
+  try {
+    const r = await api(mode === 'docked' ? '/api/pip/dock' : '/api/pip/float', {
+      method: 'POST',
+      body: JSON.stringify({ mode, hint: pipHintRect(), metrics: FLOAT, settle }),
+    });
+    const ok = mode === 'docked' ? (r.result === 'right' || r.result === 'left') : r.result === mode;
+    if (!ok || !pipWin) return false;
+    pipMode = mode;
+    body.classList.add('pip-native');
+    body.classList.toggle('pip-float', mode !== 'docked');
+    body.classList.toggle('pip-dock', mode === 'docked');
+    body.classList.toggle('pip-side-left', r.side === 'left');
+    try { localStorage.setItem(PIP_LAYOUT_KEY, mode === 'docked' ? 'dock' : 'float'); } catch (e) { /* private mode */ }
+    if (mode === 'panel') $search.focus();
+    return true;
+  } catch (err) {
+    return false;
+  } finally {
+    pipModeBusy = false;
+    body.classList.remove('pip-busy');
+  }
+}
+
+/** Toast wording for where a placed terminal shows up, per layout. */
+function placedWhere() {
+  return pipMode === 'fab' || pipMode === 'panel'
+    ? 'it will fill the screen next to the button'
+    : 'it will appear beside the list';
+}
+
+/** After Open / Switch / Start from the open floating list: fold it back. */
+function collapsePipAfterAction() {
+  if (pipMode === 'panel') setPipMode('fab');
+}
+
+/** The round button shows how many sessions run, and a dot when one waits for you. */
+function updateFab() {
+  if (!pipFab) return;
+  const live = liveMap ? Object.values(liveMap) : lastSessions.filter((s) => s.live).map((s) => s.live);
+  const n = live.length;
+  const waiting = live.filter((l) => l && l.status === 'waiting').length;
+  pipFab.querySelector('.pip-fab-count').textContent = n ? String(n) : '';
+  pipFab.classList.toggle('has-waiting', waiting > 0);
+  pipFab.title = `Sessions — ${n} running${waiting ? `, ${waiting} waiting for you` : ''}. Click to open.`;
+}
+
 async function pinSessions() {
   if (pipWin) { pipWin.focus(); return; }
   let w;
@@ -3956,6 +4045,21 @@ async function pinSessions() {
   pipMove($skipperms.closest('label'), opts);
   pipMove($fork.closest('label'), opts);
   pipMove($refresh, btns);
+  // Switch layouts: docked beside the terminals <-> round floating button.
+  // Shown once the agent has laid the window out natively (Windows).
+  const dockBtn = doc.createElement('button');
+  dockBtn.className = 'icon-btn pip-dock-btn';
+  dockBtn.title = 'Dock to the side — the list stays open next to your terminals';
+  dockBtn.setAttribute('aria-label', dockBtn.title);
+  dockBtn.appendChild(icon('panel-right'));
+  dockBtn.addEventListener('click', () => setPipMode('docked'));
+  const floatBtn = doc.createElement('button');
+  floatBtn.className = 'icon-btn pip-float-btn';
+  floatBtn.title = 'Collapse into a round button in the corner';
+  floatBtn.setAttribute('aria-label', floatBtn.title);
+  floatBtn.appendChild(icon('minimize'));
+  floatBtn.addEventListener('click', () => setPipMode('fab'));
+  btns.append(dockBtn, floatBtn);
   const unpin = doc.createElement('button');
   unpin.className = 'icon-btn';
   unpin.title = 'Bring the Sessions list back into the tab';
@@ -3971,6 +4075,26 @@ async function pinSessions() {
   pipMove($toast, doc.body);
   pipMove($modalOverlay, doc.body);
   pipMove($newOverlay, doc.body);
+
+  // Floating layout: the round button (the whole window when collapsed) and
+  // the round close button under the open list. Sizes shared with the agent.
+  doc.documentElement.style.setProperty('--fab', `${FLOAT.fab}px`);
+  doc.documentElement.style.setProperty('--fab-gap', `${FLOAT.gap}px`);
+  const fab = doc.createElement('button');
+  fab.className = 'pip-fab';
+  fab.setAttribute('aria-label', 'Open the Sessions list');
+  fab.append(icon('logo', 'pip-fab-icon'), el('span', 'pip-fab-count'), el('span', 'pip-fab-dot'));
+  fab.addEventListener('click', () => setPipMode('panel'));
+  doc.body.appendChild(fab);
+  pipFab = fab;
+  updateFab();
+  const fold = doc.createElement('button');
+  fold.className = 'pip-x';
+  fold.title = 'Collapse into the button';
+  fold.setAttribute('aria-label', fold.title);
+  fold.appendChild(icon('x'));
+  fold.addEventListener('click', () => setPipMode('fab'));
+  doc.body.appendChild(fold);
 
   pipPlaceholder = buildPipPlaceholder();
   pipMoved.find((m) => m.node === $views.sessions).mark.after(pipPlaceholder);
@@ -3994,14 +4118,23 @@ async function pinSessions() {
   w.addEventListener('pagehide', unpinSessions);
   $search.focus();
 
-  // Pin the window to the nearest screen edge (no-op off Windows).
-  api('/api/pip/dock', { method: 'POST', body: '{}' }).catch(() => {});
+  // Lay the window out (Windows): as the round floating button, or docked to
+  // the nearest screen edge — whichever was used last. If floating can't be
+  // done (e.g. two csm windows pinned and it can't tell which is this one),
+  // fall back to docking; elsewhere it simply stays a plain floating window.
+  const want = (() => {
+    try { return localStorage.getItem(PIP_LAYOUT_KEY) === 'dock' ? 'docked' : 'fab'; } catch (e) { return 'fab'; }
+  })();
+  setPipMode(want, { settle: true }).then((ok) => { if (!ok && want === 'fab') setPipMode('docked'); });
 }
 
 /** The floating window closed (Unpin, its own X, or the tab went away). */
 function unpinSessions() {
   if (!pipWin) return;
   pipWin = null;
+  pipMode = null;
+  pipFab = null;
+  pipModeBusy = false;
   closeNewDialog();
   if (pipThemeObserver) pipThemeObserver.disconnect();
   if (pipResizeObserver) pipResizeObserver.disconnect();

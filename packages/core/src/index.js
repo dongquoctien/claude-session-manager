@@ -23,7 +23,7 @@ export {
   isPidAlive,
 } from './liveSessions.js';
 export { focusSessionWindow } from './focus.js';
-export { dockPipWindow, PIP_WINDOW_TITLE } from './dock.js';
+export { dockPipWindow, floatPipWindow, floatMetrics, FLOAT_DEFAULTS, PIP_WINDOW_TITLE } from './dock.js';
 export { openSession, placeWhenLive, placeLaunched } from './open.js';
 export {
   startNewSession,

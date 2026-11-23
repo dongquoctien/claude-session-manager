@@ -161,6 +161,13 @@ test('new and folders require the token (401)', async () => {
   assert.equal((await req('/api/folders/pick', { method: 'POST', body: '{}' })).status, 401);
 });
 
+test('pip float: mode is checked; float and dock need the token', async () => {
+  const bad = await req('/api/pip/float', { method: 'POST', token: TOKEN, body: JSON.stringify({ mode: 'sideways' }) });
+  assert.equal(bad.status, 400);
+  assert.equal((await req('/api/pip/float', { method: 'POST', body: JSON.stringify({ mode: 'fab' }) })).status, 401);
+  assert.equal((await req('/api/pip/dock', { method: 'POST', body: '{}' })).status, 401);
+});
+
 test('open with unknown id returns 404', async () => {
   const r = await req('/api/open', {
     method: 'POST',

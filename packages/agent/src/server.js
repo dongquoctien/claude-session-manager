@@ -17,6 +17,7 @@ import {
   resolveFolder,
   pickFolder,
   dockPipWindow,
+  floatPipWindow,
   toggleFavorite,
   deleteSession,
   restoreSession,
@@ -70,7 +71,8 @@ export function createServer(opts = {}) {
   const cacheMs = opts.cacheMs ?? 3000;
   const liveHub = createLiveHub(opts.live);
   /** Top-left of the free area beside the pinned Sessions window (last dock). */
-  let pipFree = null;
+  /** @type {{ floating: boolean, free: { x: number, y: number, w: number, h: number }|null }} */
+  let pipLayout = { floating: false, free: null };
 
   /** @type {{ at: number, data: import('@csm/core').Session[] }|null} */
   let cache = null;
@@ -198,7 +200,7 @@ export function createServer(opts = {}) {
 
       if (req.method === 'POST' && url.pathname === '/api/open') {
         const body = await readJson(req);
-        return handleOpen(res, body, findForAction, pipFree);
+        return handleOpen(res, body, findForAction, pipLayout);
       }
 
       if (req.method === 'GET' && url.pathname === '/api/folders') {
@@ -221,18 +223,30 @@ export function createServer(opts = {}) {
 
       if (req.method === 'POST' && url.pathname === '/api/new') {
         const body = await readJson(req);
-        return handleNew(res, body, pipFree);
+        return handleNew(res, body, pipLayout);
       }
 
-      if (req.method === 'POST' && url.pathname === '/api/pip/dock') {
-        // The web UI just floated its Sessions list (Document Picture-in-
-        // Picture): pin that window to the nearest screen edge. Takes no
-        // input — the window is found natively (see core/dock.js).
-        const docked = await dockPipWindow();
-        // Remember where the free area beside it starts: terminals opened
-        // while pinned are launched right there (wt --pos), then sized to fit.
-        pipFree = docked.free || null;
-        return send(res, 200, docked);
+      if (req.method === 'POST' && (url.pathname === '/api/pip/dock' || url.pathname === '/api/pip/float')) {
+        // The web UI's pinned Sessions window (Document Picture-in-Picture):
+        //  - dock: pin it to the nearest screen edge, top to bottom;
+        //  - float: a round button in the bottom corner ("fab"), or the open
+        //    list above it ("panel").
+        // The window is found natively (core/dock.js); the page only sends
+        // its own window rect as a hint (two csm pages pinned) and the sizes
+        // its CSS uses for the floating shapes.
+        const body = await readJson(req);
+        const mode = url.pathname === '/api/pip/dock' ? 'docked' : body && body.mode;
+        if (!['docked', 'fab', 'panel'].includes(mode)) return send(res, 400, { error: 'mode must be docked, fab or panel' });
+        const r = mode === 'docked'
+          ? await dockPipWindow({ hint: body && body.hint })
+          : await floatPipWindow({ mode, hint: body && body.hint, metrics: body && body.metrics, settle: !!(body && body.settle) });
+        // Remember where terminals go now: beside the docked list, or the
+        // work area minus the floating button's column. They are launched at
+        // its corner (wt --pos) and placed into it.
+        if (['right', 'left', 'fab', 'panel'].includes(r.result)) {
+          pipLayout = { floating: r.result === 'fab' || r.result === 'panel', free: r.free || null };
+        }
+        return send(res, 200, r);
       }
 
       if (req.method === 'POST' && url.pathname === '/api/favorite') {
@@ -358,7 +372,7 @@ export function start(opts = {}) {
 
 // --- handlers -------------------------------------------------------------
 
-async function handleOpen(res, body, findForAction, pipFree) {
+async function handleOpen(res, body, findForAction, pipLayout) {
   const id = body && typeof body.id === 'string' ? body.id : null;
   if (!id) return send(res, 400, { error: 'missing id' });
 
@@ -386,7 +400,7 @@ async function handleOpen(res, body, findForAction, pipFree) {
     dryRun: !!(body && body.dryRun),
     // Sessions list floating beside the terminals: put the terminal next to it.
     place: !!(body && body.place),
-    position: body && body.place ? pipFree : null,
+    ...pinnedPlacement(body && body.place, pipLayout),
   });
 
   const common = {
@@ -411,10 +425,21 @@ async function handleOpen(res, body, findForAction, pipFree) {
 }
 
 /**
+ * Where a terminal opened from the pinned list goes: it starts at the free
+ * area's corner (wt --pos); in the floating layout it is put exactly into that
+ * area (docked: beside the list, worked out at placement time).
+ */
+function pinnedPlacement(place, pipLayout) {
+  if (!place || !pipLayout || !pipLayout.free) return { position: null, placeRect: null };
+  const { x, y } = pipLayout.free;
+  return { position: { x, y }, placeRect: pipLayout.floating ? pipLayout.free : null };
+}
+
+/**
  * Start a new conversation in a folder of the user's choice (see the security
  * notes on createServer for what is accepted).
  */
-async function handleNew(res, body, pipFree) {
+async function handleNew(res, body, pipLayout) {
   const b = body && typeof body === 'object' ? body : {};
   let r;
   try {
@@ -426,7 +451,7 @@ async function handleNew(res, body, pipFree) {
       terminal: typeof b.terminal === 'string' ? b.terminal : 'auto',
       dryRun: !!b.dryRun,
       place: !!b.place,
-      position: b.place ? pipFree : null,
+      ...pinnedPlacement(b.place, pipLayout),
     });
   } catch (err) {
     if (err && err.code === 'BAD_FOLDER') return send(res, 400, { error: err.message });

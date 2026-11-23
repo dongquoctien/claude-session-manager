@@ -120,6 +120,15 @@ __CSM_USE_LAYOUT__
 }
 $r = [ordered]@{ result = $null; tab = $null; tabBy = $null; host = $null; hwnd = $null; placed = $null; launchedPid = $null; error = $null }
 $attached = $false; $restore = $null
+# Where a placed terminal goes: an explicit area (floating layout: the work
+# area minus the round button's column), else beside the docked list.
+function PlaceIt([IntPtr]$w) {
+  if ($P.placeRect) {
+    [CsmLayout]::PlaceVisible($w, [int]$P.placeRect[0], [int]$P.placeRect[1], [int]$P.placeRect[2], [int]$P.placeRect[3])
+    return 'placed'
+  }
+  return [CsmLayout]::PlaceBeside($w, __CSM_PIP_TITLE__, __CSM_MIN_FREE__)
+}
 function Norm([string]$s) { if (-not $s) { return '' }; ($s -replace '^[^\p{L}\p{N}]+', '').Trim().ToLowerInvariant() }
 function J($v) {
   if ($null -eq $v) { return 'null' }
@@ -220,12 +229,12 @@ try {
           } else { $r.tab = 'not-found' }
         }
       }
-      if ($P.place) { $r.placed = [CsmLayout]::PlaceBeside($top, __CSM_PIP_TITLE__, __CSM_MIN_FREE__) }
+      if ($P.place) { $r.placed = PlaceIt $top }
       if ([CsmW]::Raise($top)) { $r.result = 'focused' } else { [CsmW]::Flash($top); $r.result = 'flashed' }
       if ($P.place -and $r.launchedPid -and $r.placed -eq 'placed') {
         # A window that has only just opened can still apply its own initial
         # size/position after ours: put it back if it moved.
-        for ($i = 0; $i -lt 4; $i++) { [Threading.Thread]::Sleep(200); [void][CsmLayout]::PlaceBeside($top, __CSM_PIP_TITLE__, __CSM_MIN_FREE__) }
+        for ($i = 0; $i -lt 4; $i++) { [Threading.Thread]::Sleep(200); [void](PlaceIt $top) }
       }
     }
   }
@@ -244,7 +253,10 @@ try {
  * The parameters as the script will see them: validated and normalised.
  * Exported for tests.
  * @param {{ pid?: number, procStart?: string|null, titles?: string[], place?: boolean,
+ *           placeRect?: { x: number, y: number, w: number, h: number }|null,
  *           launchedId?: string, launchedAfter?: number, searchMs?: number }} params
+ *   placeRect — with place: put the window exactly there (floating layout)
+ *   instead of beside the docked list
  */
 export function focusParams(params) {
   const launchedId = typeof params.launchedId === 'string' && UUID_RE.test(params.launchedId)
@@ -255,10 +267,24 @@ export function focusParams(params) {
     procStart: /^\d{1,20}$/.test(String(params.procStart ?? '')) ? String(params.procStart) : null,
     titles: (params.titles || []).filter((t) => typeof t === 'string' && t),
     place: !!params.place,
+    placeRect: rectOf(params.placeRect),
     launchedId,
     launchedAfter: launchedId ? Math.max(0, Math.trunc(Number(params.launchedAfter) || 0)) : 0,
     searchMs: launchedId ? Math.max(0, Math.trunc(Number(params.searchMs) || 8000)) : 0,
   };
+}
+
+/**
+ * An explicit placement area as [x, y, w, h] integers (screen px), or null.
+ * @param {unknown} r
+ * @returns {number[]|null}
+ */
+function rectOf(r) {
+  const o = /** @type {any} */ (r);
+  if (!o || typeof o !== 'object') return null;
+  const v = [o.x, o.y, o.w, o.h];
+  if (!v.every((n) => Number.isInteger(n) && Math.abs(n) <= 100_000) || o.w <= 0 || o.h <= 0) return null;
+  return v;
 }
 
 /** Render focusParams() as a PowerShell object literal (see PS_SCRIPT). */
@@ -266,6 +292,7 @@ function psParams(p) {
   const b64 = (t) => `(D '${Buffer.from(t, 'utf8').toString('base64')}')`;
   return `[pscustomobject]@{ pid = ${p.pid}; procStart = ${p.procStart ? `'${p.procStart}'` : '$null'}; `
     + `titles = @(${p.titles.map(b64).join(', ')}); place = $${p.place}; `
+    + `placeRect = ${p.placeRect ? `@(${p.placeRect.join(', ')})` : '$null'}; `
     + `launchedId = ${p.launchedId ? `'${p.launchedId}'` : '$null'}; launchedAfter = ${p.launchedAfter}; searchMs = ${p.searchMs} }`;
 }
 

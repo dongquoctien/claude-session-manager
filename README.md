@@ -113,14 +113,18 @@ exact tab) instead of starting a second `claude` on the same transcript. Fork
 still opens a new terminal. Switching windows is Windows-only; elsewhere csm
 says it's already open and starts nothing.
 
-**Pin to the side** (pin button, Chrome/Edge): the Sessions list moves into a
-small always-on-top window docked to the nearest screen edge, top to bottom
-(taller than Chrome lets you drag it on Windows), so you can keep
-it beside your terminals. While it's pinned, every conversation you open or
-switch to is placed in the space next to it (Windows). Close the floating
-window (or click the pin again) to bring the list back into the tab. The
-layout is responsive, so the same list also works in a narrow tab or on a
-phone.
+**Pin** (pin button, Chrome/Edge): the Sessions list moves into its own
+always-on-top window, out of the browser. On Windows it becomes a **round
+button in the bottom corner** (like a chat widget) showing how many sessions
+are running, with an orange dot when one is waiting for you. Click it and the
+list opens above it; the round **X**, Escape, or opening/switching to a
+session folds it back. Terminals you open fill the screen next to the button.
+Prefer the list always open? **Dock** (in the list's header) pins it to the
+screen edge, top to bottom, with terminals placed beside it; the collapse
+button goes back to the round button. csm remembers which one you used.
+Close the pinned window (or click the pin again) to bring the list back into
+the tab. The layout is responsive, so the same list also works in a narrow
+tab or on a phone.
 
 **New session** (the `+` button, also in the pinned window): start a fresh
 `claude` in any folder — no more `cd` + typing the command by hand. Pick one

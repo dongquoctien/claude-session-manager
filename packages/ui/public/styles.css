@@ -1969,3 +1969,73 @@ body.pip .pip-row-main .btn-new-label { display: inline; }
 .pip-placeholder-card h2 { margin: 4px 0 0; color: var(--text); font-size: 17px; }
 .pip-placeholder-card p { margin: 0 0 8px; line-height: 1.5; }
 .pip-placeholder-icon { width: 30px; height: 30px; color: var(--accent); }
+
+/* --- pinned window, floating layout (body.pip-float) -----------------------
+   The agent cuts the window into shapes (core/dock.js FloatH): just a round
+   button in the bottom corner, or the list as a rounded card with a round
+   close button below it. The page matches those shapes: --fab / --fab-gap are
+   the sizes the agent was given (app.js FLOAT). Which shape is up follows
+   from the window's width, so the page switches in the same frame. */
+body.pip .pip-fab,
+body.pip .pip-x,
+body.pip .pip-dock-btn,
+body.pip .pip-float-btn { display: none; }
+body.pip.pip-native.pip-float .pip-dock-btn,
+body.pip.pip-native.pip-dock .pip-float-btn { display: flex; }
+
+.pip-fab,
+.pip-x {
+  position: fixed;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+}
+.pip-fab:hover,
+.pip-x:hover { filter: brightness(1.08); }
+
+/* Collapsed: the window is only the button. */
+.pip-fab { inset: 0; flex-direction: column; gap: 2px; font: 700 11px/1 -apple-system, "Segoe UI", sans-serif; }
+.pip-fab .pip-fab-icon { width: 24px; height: 24px; }
+.pip-fab-count:empty { display: none; }
+.pip-fab-dot {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 0 2px var(--accent);
+  display: none;
+}
+.pip-fab.has-waiting .pip-fab-dot { display: block; animation: live-pulse 1.6s ease-in-out infinite; }
+body.pip-busy .pip-fab { cursor: progress; filter: brightness(0.92); }
+@media (max-width: 120px) {
+  html, body.pip { min-width: 0 !important; overflow: hidden !important; }
+  body.pip-float > :not(.pip-fab):not(svg) { display: none !important; }
+  body.pip.pip-float .pip-fab { display: flex; }
+}
+
+/* Open: the list fills the card above the gap; the close button sits where
+   the round button was. */
+@media (min-width: 121px) {
+  html:has(> body.pip-float) { height: 100%; overflow: hidden; }
+  body.pip-float {
+    height: calc(100vh - var(--fab) - var(--fab-gap));
+    min-height: 0;
+    overflow-y: auto;
+  }
+  body.pip.pip-float .pip-x { display: flex; }
+  body.pip-float .toast { bottom: calc(var(--fab) + var(--fab-gap) + 12px); }
+}
+.pip-x { right: 0; bottom: 0; width: var(--fab); height: var(--fab); }
+.pip-x .icon { width: 24px; height: 24px; }
+body.pip-side-left .pip-x { left: 0; right: auto; }
+@media (prefers-reduced-motion: reduce) {
+  .pip-fab.has-waiting .pip-fab-dot { animation: none; }
+}

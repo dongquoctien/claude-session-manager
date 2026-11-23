@@ -208,14 +208,23 @@ Hard-won, verified on real windows — keep it:
 
 ## Pinned Sessions window (web, Chrome/Edge — `core/dock.js`, "Pin" button)
 
-The Sessions list can float in a Document Picture-in-Picture window pinned to
-a screen edge; terminals opened/switched to go in the space beside it
-(`/api/open` with `place: true`). Verified on Chrome 157 — keep these:
+The Sessions list can float in a Document Picture-in-Picture window, laid out
+natively by the agent in one of two layouts (the last one used is remembered):
+- **floating** (default, `/api/pip/float`): a round button in the bottom
+  corner, like a chat widget (`fab`); click → the list opens above it with a
+  round close button where the button was (`panel`); X / Escape / a
+  successful Open-Switch-Start fold it back. Terminals go into the work area
+  minus the button's column (`placeRect`, exact).
+- **docked** (`/api/pip/dock`, "Dock" button in the list): the list spans one
+  screen edge; terminals go in the space beside it.
+Terminals are opened/switched with `place: true`. Verified on Chrome 157 —
+keep these:
 - **Finding the PiP window natively:** a visible, **topmost**
   `Chrome_WidgetWin_*` window whose title is **exactly** the page `<title>`
   (`PIP_WINDOW_TITLE`, a test keeps it in sync with index.html). The title is
   fixed at creation: later `document.title` changes (opener or PiP doc) never
-  reach it, so a per-window marker is impossible. ≠1 match → touch nothing.
+  reach it, so a per-window marker is impossible. No match → nothing to do;
+  several → see "Two csm pages pinned" below.
 - **Chrome caps PiP height at 80% of the screen** (`requestWindow` and edge
   drags), via its answer to WM_WINDOWPOSCHANGING/WM_GETMINMAXINFO. Docking
   resizes it with **`SWP_NOSENDCHANGING`**, which skips that: the PiP then
@@ -223,6 +232,22 @@ a screen edge; terminals opened/switched to go in the space beside it
   the window is moved (verified: 1032px of a 1032px work area). Dragging an
   edge by hand still goes through Chrome and stays capped — re-pin to get the
   full height back.
+- **The floating shapes = SWP_NOSENDCHANGING sizes + SetWindowRgn.** Chrome's
+  minimum (240x58 content) is skipped the same way, so the window can be a
+  56px button; `SetWindowRgn` clips Chrome's own top bar and cuts the circle /
+  rounded card + circle (verified: sticks through moves, resizes and
+  activation; clicks outside the region go to the windows below). A move
+  THROUGH Chrome re-applies its minimum (a 64px window became 242px wide) —
+  so the button has no draggable bar and sits in a fixed corner (the side
+  the window was on). Sizes are the page's CSS px (`FLOAT` in app.js, sent
+  with each call), scaled by the monitor DPI natively. The web content's
+  exact place in the window comes from the `Chrome_RenderWidgetHostHWND`
+  child (Chrome's bar = 34px at 96 DPI, 1px borders). The page switches its
+  look by the window WIDTH (media query), so it changes in the same frame as
+  the native resize. Each switch is one helper run (~0.3s).
+- **Two csm pages pinned → two PiP windows with the same title.** The page
+  sends its own window rect (`screenX/Y`, `outerWidth/Height` × DPR) as a
+  hint; the closest one wins, no clear winner → nothing is touched.
 - **First move races Chrome:** right after opening, Chrome is still settling
   the initial bounds and overrode ours (~60px off the edge). `dockPipWindow`
   re-checks and re-places until it stays flush.
