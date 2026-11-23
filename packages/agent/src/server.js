@@ -58,6 +58,8 @@ const MIME = {
  *    quotes stripped, passed as a single argument — never through a shell)
  *    and the skip-permissions flag. /api/folders/pick only opens the native
  *    folder dialog; the path it returns still goes through /api/new's checks
+ *  - `placeRect` (desktop widget) only says where csm puts the terminal it is
+ *    opening or switching to: four integers, nothing else is taken from it
  *
  * @param {Object} [opts]
  * @param {string} [opts.token]  override token (testing)
@@ -384,9 +386,9 @@ async function handleOpen(res, body, findForAction, pipFree) {
       : true,
     terminal: (body && body.terminal) || 'auto',
     dryRun: !!(body && body.dryRun),
-    // Sessions list floating beside the terminals: put the terminal next to it.
+    // Sessions list pinned / desktop widget: put the terminal in its place.
     place: !!(body && body.place),
-    position: body && body.place ? pipFree : null,
+    ...placement(body, pipFree),
   });
 
   const common = {
@@ -411,6 +413,32 @@ async function handleOpen(res, body, findForAction, pipFree) {
 }
 
 /**
+ * An area on screen sent by the client (screen px integers), or null.
+ * @param {unknown} v
+ */
+function rectFromBody(v) {
+  const o = /** @type {any} */ (v);
+  if (!o || typeof o !== 'object') return null;
+  const nums = [o.x, o.y, o.w, o.h];
+  if (!nums.every((n) => Number.isInteger(n) && Math.abs(n) <= 100_000) || o.w <= 0 || o.h <= 0) return null;
+  return { x: o.x, y: o.y, w: o.w, h: o.h };
+}
+
+/**
+ * Where a terminal opened with `place` goes:
+ *  - the desktop widget sends the exact area (`placeRect`: the work area,
+ *    minus its round button's column when that sits at a screen edge);
+ *  - the pinned browser list: beside it, starting at the free area's corner
+ *    remembered from the last dock (`pipFree`).
+ */
+function placement(body, pipFree) {
+  if (!body || !body.place) return { position: null, placeRect: null };
+  const rect = rectFromBody(body.placeRect);
+  if (rect) return { position: { x: rect.x, y: rect.y }, placeRect: rect };
+  return { position: pipFree, placeRect: null };
+}
+
+/**
  * Start a new conversation in a folder of the user's choice (see the security
  * notes on createServer for what is accepted).
  */
@@ -426,7 +454,7 @@ async function handleNew(res, body, pipFree) {
       terminal: typeof b.terminal === 'string' ? b.terminal : 'auto',
       dryRun: !!b.dryRun,
       place: !!b.place,
-      position: b.place ? pipFree : null,
+      ...placement(b, pipFree),
     });
   } catch (err) {
     if (err && err.code === 'BAD_FOLDER') return send(res, 400, { error: err.message });

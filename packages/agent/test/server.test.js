@@ -161,6 +161,24 @@ test('new and folders require the token (401)', async () => {
   assert.equal((await req('/api/folders/pick', { method: 'POST', body: '{}' })).status, 401);
 });
 
+test('desktop widget: a placeRect makes the terminal open at its corner; junk is ignored', async () => {
+  const list = await (await req('/api/sessions', { token: TOKEN })).json();
+  const id = list.sessions[0].id;
+  const open = async (placeRect) => (await req('/api/open', {
+    method: 'POST', token: TOKEN,
+    body: JSON.stringify({ id, dryRun: true, terminal: 'wt', place: true, placeRect }),
+  })).json();
+  assert.equal((await open({ x: 0, y: 0, w: 1824, h: 1032 })).args[0], '--pos=0,0');
+  for (const junk of [{ x: '0', y: 0, w: 10, h: 10 }, { x: 0, y: 0, w: 0, h: 10 }, 'x', null]) {
+    assert.ok(!(await open(junk)).args.some((a) => a.startsWith('--pos')), JSON.stringify(junk));
+  }
+  const fresh = await (await req('/api/new', {
+    method: 'POST', token: TOKEN,
+    body: JSON.stringify({ cwd: os.tmpdir(), dryRun: true, terminal: 'wt', place: true, placeRect: { x: 96, y: 0, w: 1824, h: 1032 } }),
+  })).json();
+  assert.equal(fresh.args[0], '--pos=96,0');
+});
+
 test('open with unknown id returns 404', async () => {
   const r = await req('/api/open', {
     method: 'POST',

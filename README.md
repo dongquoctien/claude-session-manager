@@ -169,7 +169,7 @@ last time. The web Monitor pushes updates over **Server-Sent Events** as the
 
 ## Desktop app (Electron)
 
-The same UI, in its own window — no browser or terminal needed:
+A floating Sessions list for your desktop — no browser or terminal needed:
 
 ```sh
 npm run desktop             # launch the Electron app
@@ -177,8 +177,18 @@ npm run desktop:dist        # build a Windows installer (.exe) into
                             # packages/desktop/release/
 ```
 
-The desktop app just hosts the local agent on a random free port and loads
-its token URL in a window — same code, same security model as the web UI.
+The desktop app is a **round floating button** that stays on top of
+everything, like a chat widget. It shows how many sessions are running, with
+an orange dot when one is waiting for you.
+- Click → the Sessions list opens next to it (the button becomes an X).
+- X, Escape, or opening/switching to a session → it folds back.
+- Drag it anywhere; it remembers where.
+- Right-click: light/dark theme, move it back to the corner, Quit.
+- Terminals opened from it fill the screen next to the button.
+
+It hosts the same local agent and pages as the web UI (port 4778 when free) —
+same code, same security model. Monitor and Office are in the web UI
+(`npm run web`).
 
 > Note: in a clean monorepo install, the `app-builder-bin` / `electron`
 > binaries occasionally fail to unpack on first `npm install` (network).

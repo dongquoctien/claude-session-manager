@@ -7,7 +7,7 @@ const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
 test('params are validated and normalised', () => {
   assert.deepEqual(focusParams({ pid: 1234, procStart: '134391018044130220', titles: ['VOC', '', null, 'Lỗi tên'] }), {
     pid: 1234, procStart: '134391018044130220', titles: ['VOC', 'Lỗi tên'], place: false,
-    launchedId: null, launchedAfter: 0, searchMs: 0,
+    placeRect: null, launchedId: null, launchedAfter: 0, searchMs: 0,
   });
   // procStart must be a FILETIME (digits); anything else is dropped.
   assert.equal(focusParams({ pid: 5 }).procStart, null);
@@ -37,7 +37,17 @@ test('place: the layout code is embedded but only loaded when asked for', () => 
   assert.ok(script.includes('public static class CsmLayout'));
   assert.match(script, /if \(\$P\.place\) \{\s+\$__src_CsmLayout = @'/);
   assert.match(script, /Use-CsmType 'CsmLayout' '[0-9a-f]{16}'/);
-  assert.match(script, /PlaceBeside\(\$top, 'Claude Session Manager', \d+\)/);
+  assert.match(script, /PlaceBeside\(\$w, 'Claude Session Manager', \d+\)/);
+});
+
+test('placeRect: an explicit area (floating layout) — integers only', () => {
+  assert.deepEqual(focusParams({ pid: 1, place: true, placeRect: { x: 0, y: -8, w: 1824, h: 1032 } }).placeRect, [0, -8, 1824, 1032]);
+  for (const bad of [{ x: 0, y: 0, w: 0, h: 10 }, { x: '0', y: 0, w: 5, h: 5 }, { x: 1.5, y: 0, w: 5, h: 5 }, 'x', null]) {
+    assert.equal(focusParams({ pid: 1, placeRect: bad }).placeRect, null);
+  }
+  const script = buildFocusScript({ pid: 1, place: true, placeRect: { x: 0, y: 0, w: 1824, h: 1032 } });
+  assert.ok(script.includes('placeRect = @(0, 0, 1824, 1032);'));
+  assert.ok(script.includes('function PlaceIt'));
 });
 
 test('C# types go through the compile-once loader, not a bare Add-Type', () => {

@@ -31,11 +31,64 @@ const fetchSessions = (params) => {
 // (a session started in a worktree, then continued in the main repo).
 // place: the list is pinned to the side, so the agent puts the terminal
 // window in the space next to it.
-const openSession = (id, { fork, skipPermissions, slug, place }) =>
+const openSession = (id, { fork, skipPermissions, slug, place, placeRect }) =>
   api('/api/open', {
     method: 'POST',
-    body: JSON.stringify({ id, fork, skipPermissions, slug, place }),
+    body: JSON.stringify({ id, fork, skipPermissions, slug, place, placeRect }),
   });
+
+// --- desktop app ------------------------------------------------------------
+//
+// The desktop app (packages/desktop) loads this same page. Its preload adds
+// `window.csmDesktop`; with `?view=widget` the page is the list inside the
+// floating widget: a rounded card above the round button (body.widget). In a
+// browser neither exists, so none of this changes the website.
+const desktop = window.csmDesktop || null;
+const isWidget = !!(desktop && desktop.widget)
+  && new URLSearchParams(location.search).get('view') === 'widget';
+if (isWidget) {
+  document.documentElement.classList.add('widget');
+  document.body.classList.add('widget');
+  // The desktop app opens / closes the card (it owns the window); the card
+  // animates from the corner the button is at.
+  desktop.widget.onPanel(({ open, origin }) => {
+    if (origin) document.body.style.setProperty('--widget-origin', origin);
+    document.body.classList.toggle('widget-open', !!open);
+    if (open) {
+      document.getElementById('search').focus();
+      document.getElementById('search').select();
+    }
+  });
+  // The theme button is hidden in the widget; the button's menu switches it.
+  if (desktop.widget.onTheme) desktop.widget.onTheme(() => document.getElementById('theme-toggle').click());
+}
+
+/**
+ * Where a terminal opened from here goes. Widget: the area the desktop app
+ * gives (the work area, minus the round button's column when it sits at an
+ * edge). Pinned browser list: beside it.
+ * @returns {Promise<{ place: boolean, placeRect?: object }>}
+ */
+async function placement() {
+  if (isWidget) {
+    try {
+      const placeRect = await desktop.widget.placeRect();
+      if (placeRect) return { place: true, placeRect };
+    } catch (e) { /* fall through: just bring it to the front */ }
+    return { place: false };
+  }
+  return { place: !!pipWin };
+}
+
+/** Toast wording for where a placed terminal shows up. */
+function placedWhere() {
+  return isWidget ? 'it will fill the screen next to the button' : 'it will appear beside the list';
+}
+
+/** Widget: done here (Open / Switch / Start went through) — fold back into the button. */
+function collapseWidget() {
+  if (isWidget) desktop.widget.collapse();
+}
 
 const favoriteSession = (id) =>
   api('/api/favorite', { method: 'POST', body: JSON.stringify({ id }) });
@@ -689,14 +742,16 @@ async function doOpen(s) {
       fork: $fork.checked,
       skipPermissions: $skipperms.checked,
       slug: s.projectSlug,
-      place: !!pipWin,
+      ...(await placement()),
     });
     const name = `“${r.title || s.title}”`;
     if (r.action === 'focused') toast(`Switched to ${name} — it was already open`, 'ok');
     else if (r.action === 'flashed') toast(`${name} is already open. Windows kept the focus here, so its taskbar button is flashing.`, 'warn');
     else if (r.action === 'running') toast(alreadyOpenMessage(name, r), 'warn');
-    else if (r.placing) toast(`Opening ${name} — it will appear beside the list`, 'ok');
+    else if (r.placing) toast(`Opening ${name} — ${placedWhere()}`, 'ok');
     else toast(`Opening ${name} via ${r.terminal}`, 'ok');
+    // Warnings (flashed / running) keep the widget open: their toast must be seen.
+    if (r.action === 'focused' || r.action === 'launched') collapseWidget();
   } catch (err) {
     toast(`Failed to open: ${err.message}`, 'err');
   } finally {
@@ -904,6 +959,8 @@ function onListKeydown(e) {
       clearSelection(); // first Escape drops the selection
     } else if (selectMode) {
       setSelectMode(false); // next Escape leaves select mode
+    } else if (isWidget && !$search.value) {
+      collapseWidget(); // widget: Escape folds it back into the button
     } else {
       $search.value = '';
       refresh();
@@ -3819,13 +3876,14 @@ $newForm.addEventListener('submit', async (e) => {
   try {
     const r = await api('/api/new', {
       method: 'POST',
-      body: JSON.stringify({ cwd, name: $newName.value, skipPermissions: $newSkip.checked, place: !!pipWin }),
+      body: JSON.stringify({ cwd, name: $newName.value, skipPermissions: $newSkip.checked, ...(await placement()) }),
     });
     rememberFolder(r.cwd);
     closeNewDialog();
     const what = r.name ? `“${r.name}”` : 'New session';
-    const where = r.placing ? ' — it will appear beside the list' : '';
+    const where = r.placing ? ` — ${placedWhere()}` : '';
     toast(`${what} is starting in ${folderBase(r.cwd)}${where}. It joins the list after your first message.`, 'ok');
+    collapseWidget();
   } catch (err) {
     setNewError(err.message);
   } finally {
@@ -4019,7 +4077,7 @@ function unpinSessions() {
   setPinButton(false);
 }
 
-if ('documentPictureInPicture' in window) {
+if ('documentPictureInPicture' in window && !desktop) {
   $pinToggle.hidden = false;
   $pinToggle.addEventListener('click', () => (pipWin ? pipWin.close() : pinSessions()));
 }
