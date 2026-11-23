@@ -57,6 +57,33 @@ test('place + not running -> launches now, places it once it has started', async
   assert.deepEqual(placed, [session.id]);
 });
 
+test('placeRect (floating layout) goes to the switch and to the launch placement', async () => {
+  const rect = { x: 0, y: 0, w: 1824, h: 1032 };
+  const f = fakes('focused');
+  await openSession(session, { place: true, placeRect: rect }, { live, focus: f.focus, launch: f.launch });
+  assert.deepEqual(f.calls.focus[0].placeRect, rect);
+  const g = fakes('focused');
+  let seen;
+  await openSession(session, { place: true, placeRect: rect }, {
+    live: null, focus: g.focus, launch: g.launch,
+    placeLaunched: async (_s, _d, o) => { seen = o.placeRect; return { result: 'focused' }; },
+  });
+  assert.deepEqual(seen, rect);
+  assert.equal(g.calls.launch[0].placeRect, undefined, 'the launcher does not get it');
+});
+
+test('placeLaunched: passes placeRect to the switch script and to the registry fallback', async () => {
+  const rect = { x: 96, y: 0, w: 1824, h: 1032 };
+  const calls = [];
+  let fallbackOpts;
+  await placeLaunched(session, {
+    focus: async (p) => { calls.push(p); return { result: 'not-started' }; },
+    placeWhenLive: async (_s, _d, o) => { fallbackOpts = o; return { result: 'timeout' }; },
+  }, { launchedAt: 5000, placeRect: rect });
+  assert.deepEqual(calls[0].placeRect, rect);
+  assert.deepEqual(fallbackOpts, { placeRect: rect });
+});
+
 test('no place -> nothing is placed after a launch', async () => {
   const f = fakes('focused');
   let called = false;

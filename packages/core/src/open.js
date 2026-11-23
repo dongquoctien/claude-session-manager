@@ -37,7 +37,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * @param {(id: string) => import('./liveSessions.js').LiveInfo|null} [deps.readLive]
  * @param {string} [deps.sessionsDir]
  * @param {typeof focusSessionWindow} [deps.focus]
- * @param {{ timeoutMs?: number, intervalMs?: number, now?: () => number }} [opts]
+ * @param {{ timeoutMs?: number, intervalMs?: number, now?: () => number, placeRect?: object|null }} [opts]
+ *   placeRect — put the window exactly there (floating layout), else beside the list
  * @returns {Promise<import('./focus.js').FocusResult|{ result: 'timeout' }>}
  */
 export async function placeWhenLive(session, deps = {}, opts = {}) {
@@ -57,6 +58,7 @@ export async function placeWhenLive(session, deps = {}, opts = {}) {
           procStart: live.procStart,
           titles: [session.title],
           place: true,
+          ...(opts.placeRect ? { placeRect: opts.placeRect } : {}),
         });
       }
       await sleep(intervalMs);
@@ -88,7 +90,8 @@ export async function placeWhenLive(session, deps = {}, opts = {}) {
  * @param {Object} [deps]
  * @param {typeof focusSessionWindow} [deps.focus]
  * @param {typeof placeWhenLive} [deps.placeWhenLive]
- * @param {{ launchedAt?: number, searchMs?: number }} [opts]
+ * @param {{ launchedAt?: number, searchMs?: number, placeRect?: object|null }} [opts]
+ *   placeRect — put the window exactly there (floating layout), else beside the list
  * @returns {Promise<import('./focus.js').FocusResult|{ result: 'timeout' }>}
  */
 export async function placeLaunched(session, deps = {}, opts = {}) {
@@ -100,12 +103,13 @@ export async function placeLaunched(session, deps = {}, opts = {}) {
       searchMs: opts.searchMs ?? 8000,
       titles: [session.title],
       place: true,
+      ...(opts.placeRect ? { placeRect: opts.placeRect } : {}),
     });
     if (r && (r.result === 'focused' || r.result === 'flashed' || r.result === 'no-window')) return r;
   } catch {
     // fall through to the registry
   }
-  return (deps.placeWhenLive || placeWhenLive)(session, deps);
+  return (deps.placeWhenLive || placeWhenLive)(session, deps, opts.placeRect ? { placeRect: opts.placeRect } : {});
 }
 
 /**
@@ -117,12 +121,14 @@ export async function placeLaunched(session, deps = {}, opts = {}) {
  * Live state is read fresh here (not from a cached scan) because this decides
  * whether a process gets spawned.
  *
- * `place` (web UI with the Sessions list floating): put the terminal in the
- * space beside that window — right away when switching, and once it has
- * started when launching (in the background; the call doesn't wait for it).
+ * `place` (web UI with the Sessions list pinned): put the terminal in the
+ * space beside that window — or exactly in `placeRect` (floating layout) —
+ * right away when switching, and as soon as its window exists when launching
+ * (in the background; the call doesn't wait for it).
  *
  * @param {import('./scanner.js').Session} session
- * @param {Omit<import('./launcher.js').LaunchOptions, 'cwd'|'sessionId'> & { dryRun?: boolean, place?: boolean }} [opts]
+ * @param {Omit<import('./launcher.js').LaunchOptions, 'cwd'|'sessionId'> & { dryRun?: boolean, place?: boolean,
+ *          placeRect?: { x: number, y: number, w: number, h: number }|null }} [opts]
  * @param {Object} [deps]  injection points (testing)
  * @param {import('./liveSessions.js').LiveInfo|null} [deps.live]  skip the registry read
  * @param {string} [deps.sessionsDir]
@@ -132,7 +138,8 @@ export async function placeLaunched(session, deps = {}, opts = {}) {
  * @returns {Promise<OpenResult>}
  */
 export async function openSession(session, opts = {}, deps = {}) {
-  const { dryRun = false, place = false, ...launchRest } = opts;
+  const { dryRun = false, place = false, placeRect = null, ...launchRest } = opts;
+  const where = place && placeRect ? { placeRect } : {};
   const launchOpts = { ...launchRest, cwd: session.cwd, sessionId: session.id };
 
   const live = deps.live !== undefined
@@ -146,6 +153,7 @@ export async function openSession(session, opts = {}, deps = {}) {
       procStart: live.procStart,
       titles: [session.title],
       place,
+      ...where,
     });
     if (focus.result === 'focused' || focus.result === 'flashed') {
       return { action: focus.result, live, focus };
@@ -160,7 +168,7 @@ export async function openSession(session, opts = {}, deps = {}) {
   const launchedAt = Date.now();
   const launched = (deps.launch || launch)(launchOpts);
   if (place) {
-    (deps.placeLaunched || placeLaunched)(session, deps, { launchedAt }).catch(() => {});
+    (deps.placeLaunched || placeLaunched)(session, deps, { launchedAt, ...where }).catch(() => {});
     return { action: 'launched', live: null, placing: true, ...launched };
   }
   return { action: 'launched', live: null, ...launched };

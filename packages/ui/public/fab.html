@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Claude Session Manager button</title>
+  <!--
+    The desktop app's floating button (packages/desktop/src/widget.js): a
+    transparent 80x80 window, this circle in the middle with room around it
+    for the shadow. Shows how many sessions are running and a dot when one is
+    waiting for input (live from /api/live). Click: open / close the list
+    (it turns into an X while open). Drag: move it. Right-click: menu.
+    Not used by the website.
+  -->
+  <style>
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; }
+    .fab {
+      position: absolute;
+      left: 12px;
+      top: 12px;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 30% 25%, #e58a6c, #d97757 55%, #c4623f);
+      color: #fff;
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.34), 0 2px 4px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 0.14s ease, box-shadow 0.14s ease;
+    }
+    .fab:hover { transform: scale(1.06); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.38), 0 2px 5px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+    .fab.pressed { transform: scale(0.95); }
+    .fab.dragging { cursor: grabbing; transform: scale(1.04); }
+    .icon { position: absolute; width: 26px; height: 26px; transition: transform 0.2s ease, opacity 0.16s ease; }
+    .icon-x { opacity: 0; transform: rotate(-90deg) scale(0.6); }
+    .open .icon-chat { opacity: 0; transform: rotate(90deg) scale(0.6); }
+    .open .icon-x { opacity: 1; transform: none; }
+    .count {
+      position: absolute;
+      top: -3px;
+      right: -3px;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 5px;
+      box-sizing: border-box;
+      border-radius: 10px;
+      background: #fff;
+      color: #c25d3c;
+      font: 700 11px/20px -apple-system, "Segoe UI", sans-serif;
+      text-align: center;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+      transition: opacity 0.16s ease;
+    }
+    .count:empty, .open .count { opacity: 0; }
+    .dot {
+      position: absolute;
+      bottom: 1px;
+      right: 1px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #f2b24d;
+      box-shadow: 0 0 0 2px #d97757;
+      opacity: 0;
+      transition: opacity 0.16s ease;
+    }
+    .waiting .dot { opacity: 1; animation: pulse 1.6s ease-in-out infinite; }
+    .open .dot { opacity: 0; animation: none; }
+    @keyframes pulse { 50% { transform: scale(1.25); } }
+    @media (prefers-reduced-motion: reduce) {
+      .fab, .icon, .count, .dot { transition: none; }
+      .waiting .dot { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="fab" id="fab" role="button" aria-label="Claude Session Manager — open the Sessions list">
+    <!-- Lucide "messages-square" (the app logo) and "x" -->
+    <svg class="icon icon-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/>
+      <path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/>
+    </svg>
+    <svg class="icon icon-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+    </svg>
+    <span class="count" id="count"></span>
+    <span class="dot"></span>
+  </div>
+  <script>
+    (() => {
+      const TOKEN = '%%CSM_TOKEN%%';
+      const fab = document.getElementById('fab');
+      const count = document.getElementById('count');
+      const bridge = window.csmDesktop && window.csmDesktop.widget;
+
+      // Live count: the same cheap feed the list uses (Claude Code's registry).
+      let open = false;
+      function paint(sessions) {
+        const all = Object.values(sessions || {});
+        const waiting = all.filter((s) => s && s.status === 'waiting').length;
+        count.textContent = all.length ? String(all.length) : '';
+        fab.classList.toggle('waiting', waiting > 0);
+        fab.title = open
+          ? 'Close the list'
+          : `${all.length} running${waiting ? `, ${waiting} waiting for you` : ''} — click to open, drag to move, right-click for more`;
+      }
+      let last = {};
+      const feed = new EventSource(`/api/live?token=${encodeURIComponent(TOKEN)}`);
+      feed.addEventListener('live', (e) => {
+        try { last = JSON.parse(e.data).sessions || {}; paint(last); } catch (err) { /* keep the last state */ }
+      });
+
+      if (!bridge) return; // opened outside the desktop app: just a picture
+
+      bridge.onState((s) => {
+        open = !!s.open;
+        fab.classList.toggle('open', open);
+        paint(last);
+      });
+
+      // Press: the app follows the cursor once it moves (drag); a release
+      // without moving is a click (toggle).
+      let pressed = false;
+      fab.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        pressed = true;
+        fab.setPointerCapture(e.pointerId);
+        fab.classList.add('pressed');
+        bridge.press();
+      });
+      const release = () => {
+        if (!pressed) return;
+        pressed = false;
+        fab.classList.remove('pressed');
+        bridge.release();
+      };
+      fab.addEventListener('pointerup', release);
+      fab.addEventListener('pointercancel', release);
+      fab.addEventListener('lostpointercapture', release);
+      fab.addEventListener('contextmenu', (e) => { e.preventDefault(); bridge.menu(); });
+      // A click that no pointer made (screen readers, UI Automation "Invoke"):
+      // there was no press/release, so toggle here.
+      fab.addEventListener('click', (e) => { if (e.detail === 0) bridge.toggle(); });
+    })();
+  </script>
+</body>
+</html>

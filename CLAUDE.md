@@ -7,7 +7,7 @@ Guidance for working in this repo. Read before making changes.
 `claude-session-manager` lists every Claude Code conversation under
 `~/.claude/projects` and reopens the picked one in a new terminal, already
 resuming, in the right directory. Ships as a CLI (`csm`), a local web UI, and
-an Electron desktop app.
+an Electron desktop app (a floating widget: round button + Sessions list).
 
 ## Architecture
 
@@ -23,12 +23,13 @@ packages/
   cli/      @csm/cli   — `csm` bin (list/search/open/fav/rm/restore/trash)
   agent/    @csm/agent — zero-dep node:http server + static web UI host
   ui/       @csm/ui    — static HTML/JS/CSS (inline Lucide SVG icons)
-  desktop/  @csm/desktop — Electron wrapper: starts the agent, loads its URL
+  desktop/  @csm/desktop — Electron app = the floating widget only: starts the
+                         agent, shows its pages (widget.js, widgetLayout.js)
 ```
 
 `cli`, `agent`, `desktop` all `import` from `core`. The desktop app reuses the
-**exact** agent + web UI (no Electron-specific UI path) — it just hosts the
-agent on a random free port and opens its token URL in a BrowserWindow.
+**exact** agent + web UI pages — it hosts the agent (port 4778, else a free
+one) and shows the widget; it has no main window (Monitor/Office are web only).
 
 ## Commands
 
@@ -270,7 +271,56 @@ the current scan — never an arbitrary path or command. The one exception is
 full path; the program is always `claude`, the session id is generated
 server-side, and the client only adds an optional name (control chars and
 quotes stripped, one argv entry, never through a shell) and the
-skip-permissions flag.
+skip-permissions flag. `/api/open` and `/api/new` also take a `placeRect` (desktop
+widget): four integers saying where the terminal being opened goes — nothing
+else is taken from it.
+
+## Desktop app = floating widget (`packages/desktop/src/widget.js`)
+
+The desktop app is ONLY a round button that stays on top of everything (like
+a chat widget) and opens the Sessions list — no main window, no Monitor /
+Office (those are in the web UI). The list opens once at start, and again
+when the app is started a second time (single instance).
+The website does NOT have it (a Chrome PiP version was tried and dropped:
+window regions can't be anti-aliased and lose the shadow — PR #29, closed).
+- Two transparent, frameless, always-on-top `BrowserWindow`s, both loading
+  pages the agent serves (same origin/token as the main window):
+  - **button** — `ui/public/fab.html`, 80x80 window (56px circle + room for
+    its CSS shadow). `focusable: false`, so clicking it never steals the
+    keyboard from a terminal. Live count + waiting dot from `/api/live`.
+    Drag = the main process follows `screen.getCursorScreenPoint()` while it
+    is held (a click is a release without moving); position saved in
+    `userData/widget.json`. Right-click → menu (list, light/dark theme —
+    the list's own theme button is hidden —, back to the corner, quit). A
+    pointer-less click (UIA Invoke) also toggles.
+  - **panel** — the normal web UI with `?view=widget` (`body.widget`: the body
+    is the rounded card with a real shadow, and the scroll container). Created
+    once and only shown/hidden → instant; scale+fade from the button corner.
+    The button turns into an X while it is open. **`html.widget` must be
+    `overflow: hidden`**: with `visible`, CSS hands the body's overflow to the
+    viewport — the page scrolled instead of the card, rows ran past its
+    rounded bottom and the sticky header scrolled away. Its header is
+    re-flowed by CSS into two rows (`.actions` → `display: contents`).
+- The page side only exists with `window.csmDesktop` (`preload.cjs`, sandboxed,
+  contextBridge, nothing but the widget calls) **and** `?view=widget` — in a
+  browser none of it runs.
+- **Fixed port 4778:** the page's settings (theme, last folder, layout) live
+  in localStorage, which is per origin — on a random port each start they
+  were lost. Busy → any free port.
+- X / Escape / a successful Open-Switch-Start fold it back (warnings stay up).
+- Terminals opened from the widget: `place: true` + `placeRect` = the work
+  area minus the button's column when it sits within 160px of a side edge
+  (`terminalArea`, DIP → physical via `screen.dipToScreenRect`). The agent
+  takes `placeRect` from the request (four integers, nothing else) and the
+  switch script puts the window exactly there (`PlaceIt`).
+- Geometry is pure and tested (`widgetLayout.js`): the card goes on the
+  button's side of the screen, above it (full height) when it is in the
+  lower half, else below.
+- Single instance (`requestSingleInstanceLock`): a second launch opens the
+  running app's list. The app runs until Quit (button menu).
+- Dev: `npm run desktop`. The Electron binary may need
+  `node node_modules/electron/install.js` once. For driving the pages in a
+  test, start it with `--remote-debugging-port=<port>` and use CDP.
 
 ## Web UI build/serve notes
 

@@ -1969,3 +1969,66 @@ body.pip .pip-row-main .btn-new-label { display: inline; }
 .pip-placeholder-card h2 { margin: 4px 0 0; color: var(--text); font-size: 17px; }
 .pip-placeholder-card p { margin: 0 0 8px; line-height: 1.5; }
 .pip-placeholder-icon { width: 30px; height: 30px; color: var(--accent); }
+
+/* --- desktop app: the list inside the floating widget (html.widget) --------
+   The desktop app (packages/desktop/src/widget.js) shows this page in a
+   transparent, frameless window above its round button. The body IS the card:
+   rounded, with a real shadow in the transparent margin around it, and it is
+   the scroll container (so the sticky bars stay inside the rounded corners).
+   It opens/closes with a short scale + fade toward the button.
+   html must not scroll: with `overflow: visible` on html, the body's
+   overflow is handed to the viewport (CSS spec) — then the page scrolled
+   instead of the card, items ran past its rounded bottom and the sticky
+   header (whose box is the 100vh body) scrolled away. */
+html.widget { background: transparent; height: 100%; overflow: hidden; }
+body.widget {
+  --widget-pad: 12px;
+  margin: var(--widget-pad);
+  height: calc(100vh - 2 * var(--widget-pad));
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-radius: 14px;
+  background: var(--bg);
+  box-shadow: 0 0 0 1px var(--border), 0 14px 38px rgba(0, 0, 0, 0.42), 0 3px 10px rgba(0, 0, 0, 0.22);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  transform-origin: var(--widget-origin, right bottom);
+  transition: opacity 0.14s ease, transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+body.widget:not(.widget-open) { opacity: 0; transform: scale(0.94); }
+body.widget .tabs,
+body.widget #pin-toggle,
+body.widget #view-monitor,
+body.widget #view-office { display: none !important; }
+body.widget .modal-overlay { inset: var(--widget-pad); border-radius: 14px; }
+
+/* Header in two tidy rows (the page's own header is made for a full window):
+     [ search …………………………… ] [ + New session ]
+     [x] skip perms  [ ] fork                   [rescan]
+   `.actions` dissolves (display: contents) so its buttons can be ordered
+   around the search; ::after is the line break. The live pill, theme toggle,
+   logo and Multi-select stay in the main window. */
+body.widget .topbar { gap: 8px; padding: 10px 12px 8px; }
+body.widget .topbar .brand,
+body.widget #live-pill,
+body.widget #theme-toggle,
+body.widget .filterbar .switch { display: none !important; }
+body.widget .topbar .actions { display: contents; }
+body.widget .topbar .search-wrap { order: 1; flex: 1 1 0; min-width: 0; max-width: none; }
+body.widget .topbar #new-session {
+  order: 2;
+  align-self: stretch;
+  width: auto;
+  height: auto;
+  padding: 0 14px;
+  border-radius: var(--radius);
+}
+body.widget .topbar #new-session .btn-new-label { display: inline; }
+body.widget .topbar::after { content: ''; order: 3; flex-basis: 100%; height: 0; }
+body.widget .topbar .toggle { order: 4; }
+body.widget .topbar #refresh { order: 5; margin-left: auto; width: 30px; height: 30px; border-radius: 7px; }
+body.widget .toast { bottom: 24px; max-width: calc(100vw - 48px); }
+@media (prefers-reduced-motion: reduce) {
+  body.widget { transition: none; }
+}

@@ -134,8 +134,10 @@ export function recentFolders(sessions, opts = {}) {
  * @param {{ cwd: unknown, name?: unknown, skipPermissions?: boolean,
  *           terminal?: import('./launcher.js').LaunchOptions['terminal'],
  *           place?: boolean, dryRun?: boolean,
- *           position?: import('./launcher.js').LaunchOptions['position'] }} opts
+ *           position?: import('./launcher.js').LaunchOptions['position'],
+ *           placeRect?: { x: number, y: number, w: number, h: number }|null }} opts
  *   position — where the new window opens (the free area beside the pinned list)
+ *   placeRect — floating layout: the exact area the window is put in
  * @param {Object} [deps]  injection points (testing)
  * @param {() => string} [deps.uuid]
  * @param {typeof launch} [deps.launch]
@@ -170,7 +172,10 @@ export async function startNewSession(opts = {}, deps = {}) {
   const launched = (deps.launch || launch)(launchOpts);
   if (opts.place) {
     // A fresh claude titles its tab "Claude Code" until it has a name.
-    (deps.placeLaunched || placeLaunched)({ id, title: name || 'Claude Code' }, deps, { launchedAt }).catch(() => {});
+    (deps.placeLaunched || placeLaunched)({ id, title: name || 'Claude Code' }, deps, {
+      launchedAt,
+      ...(opts.placeRect ? { placeRect: opts.placeRect } : {}),
+    }).catch(() => {});
     return { action: 'launched', ...base, placing: true, ...launched };
   }
   return { action: 'launched', ...base, ...launched };
