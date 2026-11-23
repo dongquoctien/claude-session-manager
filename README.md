@@ -114,7 +114,8 @@ still opens a new terminal. Switching windows is Windows-only; elsewhere csm
 says it's already open and starts nothing.
 
 **Pin to the side** (pin button, Chrome/Edge): the Sessions list moves into a
-small always-on-top window docked to the nearest screen edge, so you can keep
+small always-on-top window docked to the nearest screen edge, top to bottom
+(taller than Chrome lets you drag it on Windows), so you can keep
 it beside your terminals. While it's pinned, every conversation you open or
 switch to is placed in the space next to it (Windows). Close the floating
 window (or click the pin again) to bring the list back into the tab. The

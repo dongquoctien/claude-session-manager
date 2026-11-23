@@ -121,7 +121,9 @@ npm run desktop:dist     # build Windows .exe installer
   always launches (new id). If the window can't be raised (`no-window`,
   non-Windows, error) it returns `running` and spawns NOTHING — never a second
   `claude` on one transcript. Live state is read fresh at open time, not from
-  the 3s scan cache.
+  the 3s scan cache. The session itself is looked up in the LAST scan
+  whatever its age (`findForAction`; rescan only if the id is missing or its
+  file is gone) — a rescan on every click cost ~200ms.
 
 ## New session in a chosen folder (`core/newSession.js`, `/api/new`)
 
@@ -129,14 +131,26 @@ The web UI's `+` (also in the pinned window) starts a NEW conversation — what
 `cd <folder>` + `claude --dangerously-skip-permissions` does by hand. Verified:
 - **csm picks the id: `claude --session-id <uuid> [--name <name>]`.** The
   registry entry then carries that `sessionId` (and the name, with
-  `nameSource: "user"`) as soon as claude has started, so placement beside the
-  pinned list (`placeWhenLive`) and the Running count work before any
-  transcript exists. **No `.jsonl` is written until the first message** — the
+  `nameSource: "user"`) as soon as claude has started, so the Running count
+  (and the registry fallback of placement) work before any transcript
+  exists. **No `.jsonl` is written until the first message** — the
   row appears in the list only then.
-- **Registration can be slow:** measured 27s from process start to the
-  registry file once (some configured MCP servers were timing out), ~0.7s
-  normally. `placeWhenLive` therefore waits up to 90s (one tiny registry read
-  per 400ms).
+- **Registration is late — don't wait for it to place a window.** claude
+  writes its registry file only once startup is done (~0.7s normally, 27s
+  measured once with MCP servers timing out) and, in a folder it has never
+  seen, only after the user answers its **"trust this folder?"** prompt —
+  shown even with `--dangerously-skip-permissions`. So `placeLaunched` finds
+  the new process by the session id on its command line (`--resume <id>` /
+  `--session-id <id>`, WMI via `[wmisearcher]`, created after the launch;
+  wt/OpenConsole skipped) and places it as soon as it exists (~0.6–0.9s after
+  the click, verified also while the trust prompt waits). Registry-based
+  `placeWhenLive` (90s) is only the fallback. Fork works too (the forked
+  process still carries the original id; older processes are filtered out).
+- **No jump:** the dock call returns the top-left of the free area beside the
+  pinned list (`FreeOrigin`); the agent keeps it (`pipFree`) and launches
+  pinned terminals with `wt --pos=x,y` (one argument: a negative x must not
+  look like a flag; verified wt honours it), so the window appears in place
+  and is then only resized to fit.
 - Folder input: full path only (Windows: drive or UNC — a bare `\x` would mean
   "the agent's drive"), must exist and be a directory; `"…"` from Explorer's
   "Copy as path" and a leading `~` are accepted. Recent folders = distinct
@@ -168,10 +182,28 @@ Hard-won, verified on real windows — keep it:
 - **Foreground lock:** `SetForegroundWindow` → `AttachThreadInput` → Alt-tap,
   then `FlashWindowEx` (`flashed`). Works from the background agent (web UI);
   the desktop app's helper is a child of the foreground Electron process.
-- The script runs via `powershell.exe -EncodedCommand` (absolute
-  `%SystemRoot%` path, no temp file, no execution-policy issue); params are
-  embedded as base64 JSON so a title can't inject code. Nothing is written to
-  stdout while attached to the target console. ~0.7s per switch.
+- **How the helpers run (`core/powershell.js`):** `powershell.exe
+  -EncodedCommand <tiny bootstrap>` (absolute `%SystemRoot%` path, no temp
+  file, no execution-policy issue) that reads the real script from **stdin**
+  as base64 UTF-8. The script used to BE the `-EncodedCommand` (UTF-16 +
+  base64 = 2.7 bytes/char): with its embedded C# it was 32,200 of Windows'
+  32,767-char command-line limit, and a ~70-char Vietnamese title overflowed
+  it (spawn ENAMETOOLONG → "couldn't bring up"). Titles go into the script
+  only as base64 literals, so they can't inject code. Nothing is written to
+  stdout while attached to the target console.
+- **Speed (measured, warm):** ~0.35–0.4s from click to the window in front,
+  of which ~0.2s is just PowerShell starting (unavoidable without a resident
+  process — deliberately not done). What made it 0.8–1s before:
+  - `Add-Type -TypeDefinition` runs the C# compiler every call (~150ms per
+    type). `psUseType`/`Use-CsmType` compile once into
+    `%TEMP%\csm-ps\<Type>-<sha>.dll` and then `Assembly.LoadFrom` it (~12ms);
+    an edited type gets a new hash, older builds are deleted on compile.
+  - Cmdlets that auto-load a module: `ConvertFrom-Json` ~100ms (Utility),
+    `Get-Process` ~45ms (Management); also ConvertTo-Json, New-Object,
+    Start-Sleep, Get-Date, Join-Path, `Add-Type -AssemblyName`. The hot path
+    uses .NET only (a test enforces it); the JSON result is built by hand.
+  - **PowerShell names are case-insensitive:** a loop variable `$p` IS the
+    params object `$P` (that bug broke the launched-process search once).
 - The PID comes from the registry, never from the client request.
 
 ## Pinned Sessions window (web, Chrome/Edge — `core/dock.js`, "Pin" button)
@@ -184,8 +216,13 @@ a screen edge; terminals opened/switched to go in the space beside it
   (`PIP_WINDOW_TITLE`, a test keeps it in sync with index.html). The title is
   fixed at creation: later `document.title` changes (opener or PiP doc) never
   reach it, so a per-window marker is impossible. ≠1 match → touch nothing.
-- **Chrome caps PiP height (~85% of the work area)** — "full height" is as
-  tall as Chrome allows. Width/position can be set with SetWindowPos.
+- **Chrome caps PiP height at 80% of the screen** (`requestWindow` and edge
+  drags), via its answer to WM_WINDOWPOSCHANGING/WM_GETMINMAXINFO. Docking
+  resizes it with **`SWP_NOSENDCHANGING`**, which skips that: the PiP then
+  spans the whole work area, Chrome renders it at that size and keeps it when
+  the window is moved (verified: 1032px of a 1032px work area). Dragging an
+  edge by hand still goes through Chrome and stays capped — re-pin to get the
+  full height back.
 - **First move races Chrome:** right after opening, Chrome is still settling
   the initial bounds and overrode ours (~60px off the edge). `dockPipWindow`
   re-checks and re-places until it stays flush.

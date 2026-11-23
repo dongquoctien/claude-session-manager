@@ -106,7 +106,7 @@ function fakes() {
     deps: {
       uuid: () => '11111111-2222-4333-8444-555555555555',
       launch: (o) => { calls.launch.push(o); return { terminal: 'wt', cmd: 'wt.exe', args: [] }; },
-      placeWhenLive: async (s) => { calls.place.push(s); return { result: 'focused' }; },
+      placeLaunched: async (s, _deps, o) => { calls.place.push(s); calls.launchedAt = o.launchedAt; return { result: 'focused' }; },
     },
   };
 }
@@ -136,6 +136,13 @@ test('startNewSession: no name -> no --name; place -> placed once it runs', asyn
   assert.equal(f.calls.launch[0].name, undefined);
   assert.equal(r.placing, true);
   assert.deepEqual(f.calls.place, [{ id: r.id, title: 'Claude Code' }]);
+  assert.ok(f.calls.launchedAt > 0, 'placement looks for processes started from the launch on');
+});
+
+test('startNewSession: position (free area beside the pinned list) goes to the launcher', async () => {
+  const f = fakes();
+  await startNewSession({ cwd: tmp(), place: true, position: { x: 0, y: 0 } }, f.deps);
+  assert.deepEqual(f.calls.launch[0].position, { x: 0, y: 0 });
 });
 
 test('startNewSession: a bad folder throws BAD_FOLDER and starts nothing', async () => {

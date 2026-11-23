@@ -9,6 +9,9 @@ import os from 'node:os';
  * @property {boolean} [newSession]  start a NEW conversation (`--session-id`)
  *           instead of resuming one
  * @property {string} [name]         display name for a new conversation (`--name`)
+ * @property {{ x: number, y: number }|null} [position]  where a new Windows
+ *           Terminal window should open (screen px; `wt --pos`) — the free
+ *           area beside the pinned Sessions list
  * @property {boolean} [fork]        use --fork-session (new id, keep history)
  * @property {boolean} [skipPermissions] add --dangerously-skip-permissions
  * @property {'wt'|'powershell'|'macos'|'linux'|'auto'} [terminal='auto']
@@ -111,9 +114,15 @@ export function buildLaunch(opts) {
     // opened this way didn't match a real /resume. `--` tells wt "everything
     // after here is the command to run, stop parsing my options".
     const wt = findWindowsTerminal() || 'wt.exe';
+    // --pos=x,y (one argument: a negative x on a left-hand monitor must not
+    // look like a flag). Verified: the new window opens with its frame there.
+    const { position } = opts;
+    const pos = position && Number.isInteger(position.x) && Number.isInteger(position.y)
+      ? [`--pos=${position.x},${position.y}`]
+      : [];
     return {
       cmd: wt,
-      args: ['-d', cwd, '--', claudeBin, ...claudeArgs].map(wtEscape),
+      args: [...pos, '-d', cwd, '--', claudeBin, ...claudeArgs].map(wtEscape),
       terminal: 'wt',
     };
   }

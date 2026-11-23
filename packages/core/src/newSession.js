@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { launch, buildLaunch } from './launcher.js';
-import { placeWhenLive } from './open.js';
+import { placeLaunched } from './open.js';
 
 /** Longest display name passed to `claude --name`. */
 export const MAX_NAME_LENGTH = 80;
@@ -133,11 +133,13 @@ export function recentFolders(sessions, opts = {}) {
  *
  * @param {{ cwd: unknown, name?: unknown, skipPermissions?: boolean,
  *           terminal?: import('./launcher.js').LaunchOptions['terminal'],
- *           place?: boolean, dryRun?: boolean }} opts
+ *           place?: boolean, dryRun?: boolean,
+ *           position?: import('./launcher.js').LaunchOptions['position'] }} opts
+ *   position — where the new window opens (the free area beside the pinned list)
  * @param {Object} [deps]  injection points (testing)
  * @param {() => string} [deps.uuid]
  * @param {typeof launch} [deps.launch]
- * @param {typeof placeWhenLive} [deps.placeWhenLive]
+ * @param {typeof placeLaunched} [deps.placeLaunched]
  * @param {string} [deps.sessionsDir]
  * @returns {Promise<NewSessionResult>}  rejects with `err.code === 'BAD_FOLDER'`
  *          when the folder is unusable (nothing is started)
@@ -159,14 +161,16 @@ export async function startNewSession(opts = {}, deps = {}) {
     name: name || undefined,
     skipPermissions: !!opts.skipPermissions,
     terminal: opts.terminal || 'auto',
+    ...(opts.position ? { position: opts.position } : {}),
   };
   const base = { id, cwd: folder.path, name };
   if (opts.dryRun) return { action: 'launch', dryRun: true, ...base, ...buildLaunch(launchOpts) };
 
+  const launchedAt = Date.now();
   const launched = (deps.launch || launch)(launchOpts);
   if (opts.place) {
     // A fresh claude titles its tab "Claude Code" until it has a name.
-    (deps.placeWhenLive || placeWhenLive)({ id, title: name || 'Claude Code' }, deps).catch(() => {});
+    (deps.placeLaunched || placeLaunched)({ id, title: name || 'Claude Code' }, deps, { launchedAt }).catch(() => {});
     return { action: 'launched', ...base, placing: true, ...launched };
   }
   return { action: 'launched', ...base, ...launched };

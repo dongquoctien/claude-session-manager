@@ -69,6 +69,8 @@ export function createServer(opts = {}) {
   const token = opts.token || crypto.randomBytes(24).toString('base64url');
   const cacheMs = opts.cacheMs ?? 3000;
   const liveHub = createLiveHub(opts.live);
+  /** Top-left of the free area beside the pinned Sessions window (last dock). */
+  let pipFree = null;
 
   /** @type {{ at: number, data: import('@csm/core').Session[] }|null} */
   let cache = null;
@@ -78,6 +80,23 @@ export function createServer(opts = {}) {
     const data = await scanSessions();
     cache = { at: now, data };
     return data;
+  }
+
+  /**
+   * Find a session for an action (Open) without a full rescan when the last
+   * scan already has it: Open is clicked on the list that scan produced, and
+   * a rescan costs ~200ms on every click (the cache is only 3s). Its live
+   * state is read fresh by openSession anyway. Rescans when the id is not in
+   * the last scan, or its transcript has gone (deleted elsewhere).
+   * @param {string} id
+   * @param {string} [slug]
+   */
+  async function findForAction(id, slug) {
+    if (cache) {
+      const hit = findSession(cache.data, id, { slug });
+      if (hit.match && fs.existsSync(hit.match.file)) return hit;
+    }
+    return findSession(await getSessions(), id, { slug });
   }
 
   // --- Office agent chatter (demand-driven) ---
@@ -179,7 +198,7 @@ export function createServer(opts = {}) {
 
       if (req.method === 'POST' && url.pathname === '/api/open') {
         const body = await readJson(req);
-        return handleOpen(res, body, getSessions);
+        return handleOpen(res, body, findForAction, pipFree);
       }
 
       if (req.method === 'GET' && url.pathname === '/api/folders') {
@@ -202,14 +221,18 @@ export function createServer(opts = {}) {
 
       if (req.method === 'POST' && url.pathname === '/api/new') {
         const body = await readJson(req);
-        return handleNew(res, body);
+        return handleNew(res, body, pipFree);
       }
 
       if (req.method === 'POST' && url.pathname === '/api/pip/dock') {
         // The web UI just floated its Sessions list (Document Picture-in-
         // Picture): pin that window to the nearest screen edge. Takes no
         // input — the window is found natively (see core/dock.js).
-        return send(res, 200, await dockPipWindow());
+        const docked = await dockPipWindow();
+        // Remember where the free area beside it starts: terminals opened
+        // while pinned are launched right there (wt --pos), then sized to fit.
+        pipFree = docked.free || null;
+        return send(res, 200, docked);
       }
 
       if (req.method === 'POST' && url.pathname === '/api/favorite') {
@@ -335,14 +358,13 @@ export function start(opts = {}) {
 
 // --- handlers -------------------------------------------------------------
 
-async function handleOpen(res, body, getSessions) {
+async function handleOpen(res, body, findForAction, pipFree) {
   const id = body && typeof body.id === 'string' ? body.id : null;
   if (!id) return send(res, 400, { error: 'missing id' });
 
-  const sessions = await getSessions();
   // slug pins which copy when the same UUID exists in two project folders.
   const slug = body && typeof body.slug === 'string' ? body.slug : undefined;
-  const { match, ambiguous } = findSession(sessions, id, { slug });
+  const { match, ambiguous } = await findForAction(id, slug);
   if (!match) {
     return send(res, ambiguous.length ? 409 : 404, {
       error: ambiguous.length ? 'ambiguous id' : 'unknown id',
@@ -364,6 +386,7 @@ async function handleOpen(res, body, getSessions) {
     dryRun: !!(body && body.dryRun),
     // Sessions list floating beside the terminals: put the terminal next to it.
     place: !!(body && body.place),
+    position: body && body.place ? pipFree : null,
   });
 
   const common = {
@@ -391,7 +414,7 @@ async function handleOpen(res, body, getSessions) {
  * Start a new conversation in a folder of the user's choice (see the security
  * notes on createServer for what is accepted).
  */
-async function handleNew(res, body) {
+async function handleNew(res, body, pipFree) {
   const b = body && typeof body === 'object' ? body : {};
   let r;
   try {
@@ -403,6 +426,7 @@ async function handleNew(res, body) {
       terminal: typeof b.terminal === 'string' ? b.terminal : 'auto',
       dryRun: !!b.dryRun,
       place: !!b.place,
+      position: b.place ? pipFree : null,
     });
   } catch (err) {
     if (err && err.code === 'BAD_FOLDER') return send(res, 400, { error: err.message });
