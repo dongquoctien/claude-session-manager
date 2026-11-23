@@ -641,12 +641,46 @@ function alreadyOpenMessage(name, r) {
   return `${name} is already open${pid}, but its window couldn't be brought up${f.error ? ` (${f.error})` : ''}. Tick Fork to open a copy.`;
 }
 
+/**
+ * Show at once that the click registered: the row's action turns into a
+ * spinner ("Switching…" / "Opening…") until the agent answers (~0.3–0.5s).
+ */
+function setRowBusy(s, busy, label) {
+  for (const r of allRows) {
+    if (r.session.id !== s.id || r.session.projectSlug !== s.projectSlug) continue;
+    const row = r.node;
+    row.classList.toggle('is-opening', busy);
+    row.setAttribute('aria-busy', String(busy));
+    const open = row.querySelector('.row-open');
+    if (!open) continue;
+    if (busy) {
+      open.dataset.mode = 'busy';
+      open.replaceChildren(el('span', null, label), icon('loader', 'spin'));
+    } else {
+      delete open.dataset.mode;
+      updateRowLive(row, r.session); // back to "Open" / "Switch to"
+    }
+  }
+}
+
+/** Same for a button: spinner + label while busy, its own content after. */
+function setButtonBusy(btn, busy, label) {
+  if (busy) {
+    if (btn.dataset.idleHtml === undefined) btn.dataset.idleHtml = btn.innerHTML;
+    btn.replaceChildren(icon('loader', 'spin'), document.createTextNode(` ${label}`));
+  } else if (btn.dataset.idleHtml !== undefined) {
+    btn.innerHTML = btn.dataset.idleHtml;
+    delete btn.dataset.idleHtml;
+  }
+}
+
 async function doOpen(s) {
   // One request per conversation at a time: a double-click must never start
   // two terminals on the same transcript.
   if (opening.has(s.id)) return;
   opening.add(s.id);
   const switching = !!liveOf(s) && !$fork.checked;
+  setRowBusy(s, true, switching ? 'Switching…' : 'Opening…');
   if (!s.cwdExists && !switching) {
     toast(`Folder missing — Claude may fail to resume:\n${s.cwd}`, 'warn');
   }
@@ -667,6 +701,7 @@ async function doOpen(s) {
     toast(`Failed to open: ${err.message}`, 'err');
   } finally {
     opening.delete(s.id);
+    setRowBusy(s, false);
   }
 }
 
@@ -3740,6 +3775,7 @@ $newBrowse.addEventListener('click', async () => {
   if (newPicking) return;
   newPicking = true;
   $newBrowse.disabled = true;
+  setButtonBusy($newBrowse, true, 'Choosing…');
   setNewError('');
   try {
     const initial = unquote($newFolder.value) || lastFolder();
@@ -3761,6 +3797,7 @@ $newBrowse.addEventListener('click', async () => {
   } finally {
     newPicking = false;
     $newBrowse.disabled = false;
+    setButtonBusy($newBrowse, false);
     // Back from the native dialog: give the page its focus again.
     try { $newOverlay.ownerDocument.defaultView.focus(); } catch (e) { /* ignore */ }
   }
@@ -3777,6 +3814,7 @@ $newForm.addEventListener('submit', async (e) => {
   }
   newStarting = true;
   $newStart.disabled = true;
+  setButtonBusy($newStart, true, 'Starting…');
   setNewError('');
   try {
     const r = await api('/api/new', {
@@ -3793,6 +3831,7 @@ $newForm.addEventListener('submit', async (e) => {
   } finally {
     newStarting = false;
     $newStart.disabled = false;
+    setButtonBusy($newStart, false);
   }
 });
 
@@ -3863,7 +3902,8 @@ async function pinSessions() {
   try {
     w = await window.documentPictureInPicture.requestWindow({
       width: 480,
-      // Chrome caps a PiP window's height (~85% of the screen); ask for that.
+      // Chrome caps what it gives here (80% of the screen); the agent then
+      // stretches it to the full work-area height when it docks it.
       height: Math.max(560, Math.round(screen.availHeight * 0.85)),
     });
   } catch (err) {

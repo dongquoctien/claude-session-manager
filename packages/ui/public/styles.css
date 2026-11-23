@@ -554,6 +554,16 @@ html, body {
 }
 .row-open .icon { width: 13px; height: 13px; }
 .row:hover .row-open, .row.active .row-open { opacity: 1; }
+/* Open / Switch to in flight: shown at once, whatever the hover state. */
+.row.is-opening { cursor: progress; }
+.row.is-opening .row-open { opacity: 1; color: var(--text-dim); }
+
+/* Spinner (Lucide loader-circle) for actions in flight. */
+.icon.spin { animation: csm-spin 0.8s linear infinite; }
+@keyframes csm-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .icon.spin { animation-duration: 2.4s; }
+}
 
 .row-del {
   flex: none;

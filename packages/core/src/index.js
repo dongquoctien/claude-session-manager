@@ -24,7 +24,7 @@ export {
 } from './liveSessions.js';
 export { focusSessionWindow } from './focus.js';
 export { dockPipWindow, PIP_WINDOW_TITLE } from './dock.js';
-export { openSession, placeWhenLive } from './open.js';
+export { openSession, placeWhenLive, placeLaunched } from './open.js';
 export {
   startNewSession,
   recentFolders,

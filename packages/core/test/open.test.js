@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { openSession, placeWhenLive } from '../src/open.js';
+import { openSession, placeWhenLive, placeLaunched } from '../src/open.js';
 
 const session = { id: 'aaaa1111-2222-3333-4444-555566667777', title: 'My session', cwd: 'D:\\proj' };
 const live = { pid: 4242, procStart: '134391018044130220', status: 'idle' };
@@ -49,7 +49,7 @@ test('place + not running -> launches now, places it once it has started', async
   const placed = [];
   const r = await openSession(session, { place: true }, {
     live: null, focus: f.focus, launch: f.launch,
-    placeWhenLive: async (s) => { placed.push(s.id); return { result: 'focused' }; },
+    placeLaunched: async (s, _deps, o) => { placed.push(s.id); assert.ok(o.launchedAt > 0); return { result: 'focused' }; },
   });
   assert.equal(r.action, 'launched');
   assert.equal(r.placing, true);
@@ -61,10 +61,46 @@ test('no place -> nothing is placed after a launch', async () => {
   const f = fakes('focused');
   let called = false;
   const r = await openSession(session, {}, {
-    live: null, focus: f.focus, launch: f.launch, placeWhenLive: async () => { called = true; },
+    live: null, focus: f.focus, launch: f.launch, placeLaunched: async () => { called = true; },
   });
   assert.equal(r.placing, undefined);
   assert.equal(called, false);
+});
+
+// --- placeLaunched -----------------------------------------------------------
+
+test('placeLaunched: finds the new process by its session id and places it — no registry wait', async () => {
+  const calls = [];
+  let registry = false;
+  const r = await placeLaunched(session, {
+    focus: async (p) => { calls.push(p); return { result: 'focused', launchedPid: 99, placed: 'placed' }; },
+    placeWhenLive: async () => { registry = true; return { result: 'timeout' }; },
+  }, { launchedAt: 1_000_000, searchMs: 3000 });
+  assert.equal(r.result, 'focused');
+  assert.equal(registry, false);
+  assert.deepEqual(calls, [{
+    launchedId: session.id, launchedAfter: 998_000, searchMs: 3000, titles: ['My session'], place: true,
+  }]);
+});
+
+for (const result of ['not-started', 'error', 'gone']) {
+  test(`placeLaunched: ${result} -> falls back to waiting for the registry`, async () => {
+    let registry = false;
+    const r = await placeLaunched(session, {
+      focus: async () => ({ result }),
+      placeWhenLive: async () => { registry = true; return { result: 'focused' }; },
+    });
+    assert.equal(registry, true);
+    assert.equal(r.result, 'focused');
+  });
+}
+
+test('placeLaunched: never throws', async () => {
+  const r = await placeLaunched(session, {
+    focus: async () => { throw new Error('boom'); },
+    placeWhenLive: async () => ({ result: 'timeout' }),
+  });
+  assert.equal(r.result, 'timeout');
 });
 
 // --- placeWhenLive -----------------------------------------------------------

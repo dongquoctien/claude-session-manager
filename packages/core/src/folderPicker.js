@@ -1,4 +1,4 @@
-import { runPowerShell } from './powershell.js';
+import { runPowerShell, PS_TYPE_LOADER, psUseType } from './powershell.js';
 
 /**
  * Native "choose a folder" dialog for the web UI's New session button.
@@ -175,17 +175,16 @@ public static class CsmPick {
 
 /**
  * `__CSM_PARAMS__` becomes base64(JSON) — no quote characters, so a folder
- * name can't break out of the literal. The C# sits in a single-quoted
- * (verbatim) here-string.
+ * name can't break out of the literal. The C# is compiled once and loaded
+ * from a cached DLL afterwards (powershell.js psUseType).
  */
 const PS_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 $P = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__CSM_PARAMS__')) | ConvertFrom-Json
 $r = [ordered]@{ result = $null; path = $null; error = $null }
+__CSM_LOADER__
 try {
-  Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing -TypeDefinition @'
-__CSM_PICKER__
-'@
+__CSM_USE_PICKER__
   $picked = [CsmPick]::Pick([string]$P.title, [string]$P.initial)
   if ($picked) { $r.result = 'picked'; $r.path = $picked } else { $r.result = 'cancelled' }
 } catch { $r.result = 'error'; $r.error = $_.Exception.Message }
@@ -201,7 +200,8 @@ export function buildPickerScript({ title = '', initial = null } = {}) {
   const json = JSON.stringify({ title: title || '', initial: initial || null });
   return PS_SCRIPT
     .replace('__CSM_PARAMS__', () => Buffer.from(json, 'utf8').toString('base64'))
-    .replace('__CSM_PICKER__', () => PICKER_CS);
+    .replace('__CSM_LOADER__', () => PS_TYPE_LOADER)
+    .replace('__CSM_USE_PICKER__', () => psUseType('CsmPick', PICKER_CS, ['System.Windows.Forms', 'System.Drawing']));
 }
 
 /**

@@ -22,6 +22,16 @@ test('wt build: a ";" (folder or name) is escaped so wt does not split the comma
   assert.equal(wtEscape('no semicolon'), 'no semicolon');
 });
 
+test('wt build: position opens the window there (--pos=x,y, one argument)', () => {
+  const { args } = buildLaunch({ cwd: 'C:\\x', sessionId: 'id', terminal: 'wt', position: { x: -1920, y: 0 } });
+  assert.deepEqual(args.slice(0, 3), ['--pos=-1920,0', '-d', 'C:\\x']);
+  // Nonsense or no position: no flag.
+  assert.ok(!buildLaunch({ cwd: 'C:\\x', sessionId: 'id', terminal: 'wt', position: { x: '1', y: 2 } }).args.some((a) => a.startsWith('--pos')));
+  assert.ok(!buildLaunch({ cwd: 'C:\\x', sessionId: 'id', terminal: 'wt', position: null }).args.some((a) => a.startsWith('--pos')));
+  // Other terminals ignore it.
+  assert.ok(!buildLaunch({ cwd: 'C:\\x', sessionId: 'id', terminal: 'powershell', position: { x: 0, y: 0 } }).args.join(' ').includes('--pos'));
+});
+
 test('powershell build: a new session keeps its name as one quoted argument', () => {
   const { args } = buildLaunch({ cwd: 'C:\\x', sessionId: 'id', newSession: true, name: "it's $env:X", terminal: 'powershell' });
   assert.ok(args[3].includes(`'--name' 'it''s $env:X'`), args[3]);

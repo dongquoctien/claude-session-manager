@@ -68,6 +68,47 @@ export async function placeWhenLive(session, deps = {}, opts = {}) {
 }
 
 /**
+ * After a launch with the Sessions list floating: move the new terminal beside
+ * the list AS SOON AS its window exists, and bring it to the front.
+ *
+ * The new `claude` is found by the session id on its command line
+ * (`--resume <id>` / `--session-id <id>`), so this does not wait for claude to
+ * register in ~/.claude/sessions — which only happens once it has started up
+ * (seconds with slow MCP servers or a huge transcript) and, in a folder it has
+ * never seen, only after the user answered its "trust this folder?" question.
+ * Placement used to wait for that, so the window first showed up at Windows
+ * Terminal's default spot and jumped later. Fork works too: the forked
+ * process still carries the original id, and only processes started after the
+ * launch count.
+ *
+ * Falls back to {@link placeWhenLive} (registry) when the process can't be
+ * found that way. Never throws.
+ *
+ * @param {{ id: string, title: string }} session
+ * @param {Object} [deps]
+ * @param {typeof focusSessionWindow} [deps.focus]
+ * @param {typeof placeWhenLive} [deps.placeWhenLive]
+ * @param {{ launchedAt?: number, searchMs?: number }} [opts]
+ * @returns {Promise<import('./focus.js').FocusResult|{ result: 'timeout' }>}
+ */
+export async function placeLaunched(session, deps = {}, opts = {}) {
+  const launchedAt = opts.launchedAt ?? Date.now();
+  try {
+    const r = await (deps.focus || focusSessionWindow)({
+      launchedId: session.id,
+      launchedAfter: launchedAt - 2000, // clock slack; older processes never match
+      searchMs: opts.searchMs ?? 8000,
+      titles: [session.title],
+      place: true,
+    });
+    if (r && (r.result === 'focused' || r.result === 'flashed' || r.result === 'no-window')) return r;
+  } catch {
+    // fall through to the registry
+  }
+  return (deps.placeWhenLive || placeWhenLive)(session, deps);
+}
+
+/**
  * Open a conversation the right way: if a `claude` process already has it
  * open, switch to that window (and tab); otherwise resume it in a new
  * terminal. `fork` always launches — it creates a new session id, so it can't
@@ -87,7 +128,7 @@ export async function placeWhenLive(session, deps = {}, opts = {}) {
  * @param {string} [deps.sessionsDir]
  * @param {typeof focusSessionWindow} [deps.focus]
  * @param {typeof launch} [deps.launch]
- * @param {typeof placeWhenLive} [deps.placeWhenLive]
+ * @param {typeof placeLaunched} [deps.placeLaunched]
  * @returns {Promise<OpenResult>}
  */
 export async function openSession(session, opts = {}, deps = {}) {
@@ -116,9 +157,10 @@ export async function openSession(session, opts = {}, deps = {}) {
   }
 
   if (dryRun) return { action: 'launch', dryRun: true, live: null, ...buildLaunch(launchOpts) };
+  const launchedAt = Date.now();
   const launched = (deps.launch || launch)(launchOpts);
   if (place) {
-    (deps.placeWhenLive || placeWhenLive)(session, deps).catch(() => {});
+    (deps.placeLaunched || placeLaunched)(session, deps, { launchedAt }).catch(() => {});
     return { action: 'launched', live: null, placing: true, ...launched };
   }
   return { action: 'launched', live: null, ...launched };

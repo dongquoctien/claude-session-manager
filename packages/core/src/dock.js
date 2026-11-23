@@ -1,4 +1,4 @@
-import { runPowerShell } from './powershell.js';
+import { runPowerShell, PS_TYPE_LOADER, psUseType } from './powershell.js';
 
 /**
  * Side-by-side layout for the web UI's floating Sessions window: the list sits
@@ -13,8 +13,11 @@ import { runPowerShell } from './powershell.js';
  *    carry a " - Google Chrome" style suffix, so "visible + topmost + Chrome
  *    class + exact title" picks out our PiP window. Anything other than
  *    exactly one match means "don't touch anything".
- *  - it can be moved/resized with SetWindowPos, but Chrome caps its height
- *    (~85% of the work area), so "full height" is as tall as Chrome allows.
+ *  - it can be moved/resized with SetWindowPos. Chrome caps its height at 80%
+ *    of the screen (its answer to WM_WINDOWPOSCHANGING / WM_GETMINMAXINFO),
+ *    but a resize with SWP_NOSENDCHANGING skips that: docked, it spans the
+ *    whole work area, renders it, and keeps it when moved. Dragging an edge
+ *    by hand still goes through Chrome, so that stays capped at 80%.
  *  - Windows 10/11 windows have invisible resize borders; placement works on
  *    the visible frame (DWMWA_EXTENDED_FRAME_BOUNDS) so edges meet exactly.
  *  - all of it runs per-monitor-DPI-aware, in physical pixels.
@@ -31,7 +34,7 @@ const MIN_FREE_WIDTH = 320;
 
 /**
  * C# used by the dock script and the switch script (focus.js). Pure Win32;
- * compiled by PowerShell's Add-Type in the helper process.
+ * compiled once and then loaded from a cached DLL (powershell.js psUseType).
  */
 export const LAYOUT_CS = String.raw`
 using System; using System.Runtime.InteropServices; using System.Text; using System.Collections.Generic;
@@ -84,23 +87,33 @@ public static class CsmLayout {
   }
 
   /** Put the VISIBLE frame of h at (x, y, w, hh). */
-  public static void PlaceVisible(IntPtr h, int x, int y, int w, int hh) {
+  public static void PlaceVisible(IntPtr h, int x, int y, int w, int hh) { PlaceVisible(h, x, y, w, hh, false); }
+
+  /**
+   * noClamp: SWP_NOSENDCHANGING — the window gets no WM_WINDOWPOSCHANGING, so
+   * it can't shrink the new size to its own maximum. Chrome caps a PiP window
+   * at 80% of the screen height that way; resized like this it takes the
+   * full height, renders it, and keeps it when moved afterwards (verified).
+   */
+  public static void PlaceVisible(IntPtr h, int x, int y, int w, int hh, bool noClamp) {
     if (IsZoomed(h) || IsIconic(h)) ShowWindow(h, 9); // SW_RESTORE: a maximized window ignores SetWindowPos
     RECT r; GetWindowRect(h, out r); RECT v = Visible(h);
     int l = v.L - r.L, t = v.T - r.T, rr = r.R - v.R, b = r.B - v.B;
-    SetWindowPos(h, IntPtr.Zero, x - l, y - t, w + l + rr, hh + t + b, 0x0004 | 0x0010); // NOZORDER | NOACTIVATE
+    uint flags = 0x0004 | 0x0010; // NOZORDER | NOACTIVATE
+    if (noClamp) flags |= 0x0400; // NOSENDCHANGING
+    SetWindowPos(h, IntPtr.Zero, x - l, y - t, w + l + rr, hh + t + b, flags);
   }
 
   static bool OnRight(RECT v, RECT work) { return (v.L + v.R) / 2 >= (work.L + work.R) / 2; }
 
-  /** Pin the PiP window to the edge it is nearest to, top, as tall as allowed. */
+  /** Pin the PiP window to the edge it is nearest to: top to bottom of the work area. */
   public static string Dock(string title) {
     var pips = FindPip(title);
     if (pips.Count == 0) return "no-pip";
     if (pips.Count > 1) return "ambiguous";
     IntPtr p = pips[0]; RECT v = Visible(p); RECT work = Work(p);
     int w = v.R - v.L; bool right = OnRight(v, work);
-    PlaceVisible(p, right ? work.R - w : work.L, work.T, w, work.B - work.T);
+    PlaceVisible(p, right ? work.R - w : work.L, work.T, w, work.B - work.T, true);
     return right ? "right" : "left";
   }
 
@@ -110,7 +123,19 @@ public static class CsmLayout {
     if (pips.Count != 1) return false;
     RECT v = Visible(pips[0]); RECT work = Work(pips[0]);
     bool side = Math.Abs(v.R - work.R) <= 2 || Math.Abs(v.L - work.L) <= 2;
-    return side && Math.Abs(v.T - work.T) <= 2;
+    return side && Math.Abs(v.T - work.T) <= 2 && Math.Abs(v.B - work.B) <= 2;
+  }
+
+  /** Top-left "x,y" of the free area beside the PiP window ("" if none / no room). */
+  public static string FreeOrigin(string title, int minFree) {
+    var pips = FindPip(title);
+    if (pips.Count != 1) return "";
+    RECT v = Visible(pips[0]); RECT work = Work(pips[0]);
+    int x0, x1;
+    if (OnRight(v, work)) { x0 = work.L; x1 = Math.Min(v.L, work.R); }
+    else { x0 = Math.Max(v.R, work.L); x1 = work.R; }
+    if (x1 - x0 < minFree) return "";
+    return x0 + "," + work.T;
   }
 
   /** Move target into the space next to the PiP window, full work-area height. */
@@ -140,10 +165,8 @@ public static class CsmLayout {
 export async function dockPipWindow(opts = {}) {
   if (process.platform !== 'win32') return { result: 'unsupported' };
   const script = `$ErrorActionPreference = 'Stop'
-Add-Type @"
-${LAYOUT_CS}
-"@
-[CsmLayout]::DpiAware()
+${PS_TYPE_LOADER}
+${psUseType('CsmLayout', LAYOUT_CS)}[CsmLayout]::DpiAware()
 $title = ${psString(PIP_WINDOW_TITLE)}
 # Right after it opens, Chrome is still settling the PiP window's initial
 # bounds and can override ours (verified: the first move landed ~60px off the
@@ -158,11 +181,29 @@ for ($i = 0; $i -lt 6 -and ($res -eq 'right' -or $res -eq 'left'); $i++) {
   if ([CsmLayout]::IsDocked($title)) { break }
   $res = [CsmLayout]::Dock($title)
 }
-[Console]::Out.Write($res)`;
+$free = ''
+if ($res -eq 'right' -or $res -eq 'left') { $free = [CsmLayout]::FreeOrigin($title, ${MIN_FREE_WIDTH}) }
+[Console]::Out.Write($res + ' ' + $free)`;
   const { stdout, error } = await runPowerShell(script, { timeoutMs: opts.timeoutMs ?? 10_000 });
-  const res = stdout.trim().split(/\r?\n/).pop();
-  if (['right', 'left', 'no-pip', 'ambiguous'].includes(res)) return { result: res };
-  return { result: 'error', error: error || (res ? res.slice(0, 200) : 'no output') };
+  return parseDockOutput(stdout, error);
+}
+
+/**
+ * `<side> [x,y]` → result + the free area's top-left, where terminals opened
+ * while pinned start (`wt --pos`), so they appear in place instead of at
+ * Windows Terminal's default spot. Exported for tests.
+ * @param {string} stdout
+ * @param {string} [error]
+ * @returns {{ result: 'right'|'left'|'no-pip'|'ambiguous'|'error', free?: { x: number, y: number }|null, error?: string }}
+ */
+export function parseDockOutput(stdout, error) {
+  const line = String(stdout || '').trim().split(/\r?\n/).pop() || '';
+  const [res, xy] = line.split(' ');
+  if (!['right', 'left', 'no-pip', 'ambiguous'].includes(res)) {
+    return { result: 'error', error: error || (line ? line.slice(0, 200) : 'no output') };
+  }
+  const m = /^(-?\d+),(-?\d+)$/.exec(xy || '');
+  return { result: res, free: m ? { x: Number(m[1]), y: Number(m[2]) } : null };
 }
 
 /**
